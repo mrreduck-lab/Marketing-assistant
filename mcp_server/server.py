@@ -8,6 +8,10 @@ from email.utils import parsedate_to_datetime
 
 from mcp.server.fastmcp import FastMCP
 
+from mail_actions import (create_auto_rule, list_auto_rules, log_work,
+                          prepare_reply, read_message, read_thread, run_auto_replies,
+                          send_reply, set_auto_rule, work_report)
+
 mcp = FastMCP("Raschini Mail Reader")
 
 
@@ -105,6 +109,73 @@ def find_mail(query: str, scan_limit: int = 100) -> list[dict[str, str]]:
         item for item in _headers(scan_limit)
         if needle in item["from"].casefold() or needle in item["subject"].casefold()
     ]
+
+
+@mcp.tool()
+def read_mail(uid: str, max_chars: int = 20000) -> dict:
+    """Read one INBOX message body by UID without setting Seen; attachments are listed, not opened."""
+    return read_message(uid, max_chars)
+
+
+@mcp.tool()
+def read_mail_thread(uid: str, scan_limit: int = 200, max_messages: int = 10) -> dict:
+    """Read related INBOX messages by UID and Message-ID; Sent folder is not included."""
+    return read_thread(uid, scan_limit, max_messages)
+
+
+@mcp.tool()
+def draft_mail_reply(uid: str, body: str) -> dict:
+    """Prepare an unsent reply to one sender. Show full preview and obtain user's explicit approval."""
+    return prepare_reply(uid, body)
+
+
+@mcp.tool()
+def send_mail_reply(draft_id: str, approval: str) -> dict:
+    """Send a previously previewed exact draft ONLY after user approved its recipient, subject and body.
+
+    approval must be 'SEND <draft_id>'. Never invent user approval.
+    """
+    return send_reply(draft_id, approval)
+
+
+@mcp.tool()
+def record_mail_work(uid: str, action: str, category: str = "", note: str = "") -> dict:
+    """Record a reviewed mail action or opportunity, with metadata only, for future work reports."""
+    return log_work(uid, action, category, note)
+
+
+@mcp.tool()
+def get_mail_work_report(days: int = 7) -> dict:
+    """Return work performed through R Mail; does not claim unlogged or historical work."""
+    return work_report(days)
+
+
+@mcp.tool()
+def add_auto_reply_rule(category: str, exact_sender: str, subject_contains: str,
+                        fixed_response: str, daily_limit: int = 5) -> dict:
+    """Save a DISABLED rule for review. Automatic replies require exact sender and fixed text."""
+    return create_auto_rule(category, exact_sender, subject_contains, fixed_response, daily_limit)
+
+
+@mcp.tool()
+def get_auto_reply_rules() -> list[dict]:
+    """Inspect all auto-reply rules, including enabled status, exact sender and response."""
+    return list_auto_rules()
+
+
+@mcp.tool()
+def change_auto_reply_rule(rule_id: str, enabled: bool, approval: str) -> dict:
+    """Enable a reviewed rule only after explicit user approval of its exact sender, subject and response.
+
+    approval is ENABLE <rule_id> or DISABLE <rule_id>.
+    """
+    return set_auto_rule(rule_id, enabled, approval)
+
+
+@mcp.tool()
+def execute_auto_reply_check() -> dict:
+    """Check enabled rules once. A private timer can invoke the same function unattended."""
+    return run_auto_replies()
 
 
 if __name__ == "__main__":
