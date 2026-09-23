@@ -1,4 +1,4 @@
-"""Read-only MCP tools for the corporate INBOX. No mail is persisted."""
+"""R Mail MCP: private mail workflow and read-only calendar tools."""
 
 import email
 import imaplib
@@ -7,6 +7,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
 from mcp.server.fastmcp import FastMCP
+from calendar_actions import list_calendars, list_events
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
                           prepare_reply, read_message, read_thread, run_auto_replies,
@@ -109,6 +110,21 @@ def find_mail(query: str, scan_limit: int = 100) -> list[dict[str, str]]:
         item for item in _headers(scan_limit)
         if needle in item["from"].casefold() or needle in item["subject"].casefold()
     ]
+
+
+@mcp.tool()
+def list_mail_calendars() -> list[dict]:
+    """Read available Mail.ru CalDAV calendars; requires separate CALDAV credentials."""
+    return list_calendars()
+
+
+@mcp.tool()
+def list_mail_calendar_events(start_date: str, end_date: str, calendar_id: str = "", limit: int = 100) -> dict:
+    """Read events in [start_date, end_date) as YYYY-MM-DD; default timezone Europe/Moscow.
+
+    No calendar changes occur. Recurring series may appear as rules rather than expanded instances.
+    """
+    return list_events(start_date, end_date, calendar_id, limit)
 
 
 @mcp.tool()
