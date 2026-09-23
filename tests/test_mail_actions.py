@@ -1,0 +1,134 @@
+import os
+import sys
+import tempfile
+import unittest
+from email.message import EmailMessage
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_server"))
+import mail_actions as mail
+
+
+class FakeIMAP:
+    commands = []
+    uids = [7, 8, 9]
+    sender_for_10 = "Partner <partner@example.org>"
+
+    def __init__(self, *args, **kwargs):
+        self.msg = EmailMessage()
+        self.msg["From"] = "Partner <partner@example.org>"
+        self.msg["To"] = "marketing@raschini.com"
+        self.msg["Subject"] = "Partnership"
+        self.msg["Message-ID"] = "<original@example.org>"
+        self.msg.set_content("Hello, let's discuss a partnership.")
+        self.msg.add_attachment(b"secret-file-content", maintype="application", subtype="pdf", filename="proposal.pdf")
+
+    def login(self, *args):
+        return "OK", []
+
+    def select(self, *args, **kwargs):
+        self.commands.append(("select", args, kwargs))
+        return "OK", []
+
+    def uid(self, command, *args):
+        self.commands.append((command, args))
+        if command == "search":
+            return "OK", [" ".join(str(i) for i in self.uids).encode()]
+        if args[0] not in ("9", "10"):
+            return "OK", []
+        if args[0] == "10":
+            self.msg.replace_header("From", self.sender_for_10)
+        return "OK", [(b"header", self.msg.as_bytes()), b")"]
+
+    def logout(self):
+        pass
+
+
+class FakeSMTP:
+    sent = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def login(self, *args):
+        pass
+
+    def send_message(self, message, **kwargs):
+        self.sent.append((message, kwargs))
+
+
+class WorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.chmod(self.tmp.name, 0o700)
+        self.environ = patch.dict(os.environ, {
+            "MAIL_STATE_DIR": self.tmp.name, "MAIL_USER": "marketing@raschini.com",
+            "MAIL_PASSWORD": "not-real", "SMTP_USER": "marketing@raschini.com",
+            "SMTP_PASSWORD": "not-real",
+        })
+        self.environ.start()
+        self.imap = patch.object(mail.imaplib, "IMAP4_SSL", FakeIMAP)
+        self.imap.start()
+        FakeIMAP.commands.clear()
+        FakeIMAP.uids = [7, 8, 9]
+        FakeIMAP.sender_for_10 = "Partner <partner@example.org>"
+        FakeSMTP.sent.clear()
+
+    def tearDown(self):
+        self.imap.stop()
+        self.environ.stop()
+        self.tmp.cleanup()
+
+    def test_read_uses_peek_and_omits_attachment_bytes(self):
+        data = mail.read_message("9")
+        self.assertIn("partnership", data["body"])
+        self.assertEqual(data["attachments"], ["proposal.pdf"])
+        self.assertNotIn("secret-file-content", str(data))
+        self.assertIn(("select", ("INBOX",), {"readonly": True}), FakeIMAP.commands)
+        self.assertIn(("fetch", ("9", "(UID BODY.PEEK[])")), FakeIMAP.commands)
+        self.assertEqual(mail.work_report()["counts"]["read"], 1)
+
+    def test_exact_approval_and_no_duplicate_send(self):
+        draft = mail.prepare_reply("9", "Thank you. I will review this.")
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            with self.assertRaises(ValueError):
+                mail.send_reply(draft["draft_id"], "")
+            sent = mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+            self.assertEqual(sent["status"], "sent")
+            self.assertEqual(FakeSMTP.sent[0][1]["to_addrs"], ["partner@example.org"])
+            self.assertEqual(FakeSMTP.sent[0][0]["In-Reply-To"], "<original@example.org>")
+            with self.assertRaises(ValueError):
+                mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+
+    def test_auto_rule_stays_disabled_and_skips_existing_mail(self):
+        rule = mail.create_auto_rule("partnerships", "partner@example.org", "Partnership", "Thank you")
+        self.assertFalse(rule["enabled"])
+        self.assertEqual(mail.run_auto_replies()["attempted"], 0)
+        active = mail.set_auto_rule(rule["rule_id"], True, "ENABLE " + rule["rule_id"])
+        self.assertEqual(active["uid_floor"], 9)
+        self.assertEqual(mail.run_auto_replies()["attempted"], 0)
+        self.assertEqual(FakeSMTP.sent, [])
+
+    def test_auto_rule_only_sends_matching_new_message_once(self):
+        rule = mail.create_auto_rule("partnerships", "partner@example.org", "Partnership", "We received your request", daily_limit=1)
+        mail.set_auto_rule(rule["rule_id"], True, "ENABLE " + rule["rule_id"])
+        FakeIMAP.uids = [7, 8, 9, 10]
+        FakeIMAP.sender_for_10 = "Other <other@example.org>"
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            self.assertEqual(mail.run_auto_replies()["attempted"], 0)
+            FakeIMAP.sender_for_10 = "Partner <partner@example.org>"
+            self.assertEqual(mail.run_auto_replies()["attempted"], 1)
+            self.assertEqual(mail.run_auto_replies()["attempted"], 0)
+        self.assertEqual(len(FakeSMTP.sent), 1)
+        self.assertEqual(FakeSMTP.sent[0][0].get_content().strip(), "We received your request")
+
+
+if __name__ == "__main__":
+    unittest.main()
