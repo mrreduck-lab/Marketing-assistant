@@ -1,0 +1,2 @@
+# Mail Reader MVP
+# Uses Python standard library only
