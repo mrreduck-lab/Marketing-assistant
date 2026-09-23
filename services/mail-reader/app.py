@@ -1,12 +1,20 @@
 import os
+import time
 import imaplib
 import email
+import logging
 from email.header import decode_header
 
 HOST = os.getenv("MAIL_HOST", "imap.mail.ru")
 PORT = int(os.getenv("MAIL_PORT", "993"))
 USER = os.getenv("MAIL_USER")
 PASSWORD = os.getenv("MAIL_PASSWORD")
+INTERVAL = int(os.getenv("MAIL_CHECK_INTERVAL", "300"))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
 
 
 def decode(value):
@@ -31,7 +39,10 @@ def get_headers(limit=20):
 
     result = []
     for msg_id in reversed(ids):
-        _, msg_data = mail.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+        _, msg_data = mail.fetch(
+            msg_id,
+            "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
+        )
         msg = email.message_from_bytes(msg_data[0][1])
         result.append({
             "from": decode(msg.get("From")),
@@ -43,6 +54,19 @@ def get_headers(limit=20):
     return result
 
 
+def check_mail():
+    messages = get_headers()
+    logging.info("Mail check completed. Messages found: %s", len(messages))
+    return messages
+
+
 if __name__ == "__main__":
-    for item in get_headers():
-        print(item)
+    logging.info("Raschini Mail Assistant started")
+
+    while True:
+        try:
+            check_mail()
+        except Exception as e:
+            logging.error("Mail check failed: %s", e)
+
+        time.sleep(INTERVAL)
