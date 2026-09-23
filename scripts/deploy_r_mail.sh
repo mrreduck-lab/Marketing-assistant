@@ -2,7 +2,7 @@
 # Run on the private mail host as root. No credentials are printed or copied.
 set -Eeuo pipefail
 
-readonly revision='47571b40d40998d9762e9a71f011b2efba76792a'
+readonly revision='2a1427c9f6c9da592f4f4527473f2ad7077d30e8'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
 readonly python="${base}/.venv-mcp/bin/python3"
@@ -29,17 +29,23 @@ trap cleanup EXIT
 mkdir -p "${staging}/mcp_server" "${staging}/tests"
 curl -fsSL "${source}/mcp_server/server.py" -o "${staging}/mcp_server/server.py"
 curl -fsSL "${source}/mcp_server/mail_actions.py" -o "${staging}/mcp_server/mail_actions.py"
+curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py"
 curl -fsSL "${source}/tests/test_mail_actions.py" -o "${staging}/tests/test_mail_actions.py"
+curl -fsSL "${source}/tests/test_calendar_actions.py" -o "${staging}/tests/test_calendar_actions.py"
 "$python" -c 'import mcp'
 "$python" -m unittest discover -s "${staging}/tests" -q
-"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py"
+"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py"
 
 cp -p "${target}/server.py" "${backup}/server.py"
 if [[ -f "${target}/mail_actions.py" ]]; then
   cp -p "${target}/mail_actions.py" "${backup}/mail_actions.py"
 fi
+if [[ -f "${target}/calendar_actions.py" ]]; then
+  cp -p "${target}/calendar_actions.py" "${backup}/calendar_actions.py"
+fi
 install -m 0644 "${staging}/mcp_server/server.py" "${target}/server.py"
 install -m 0644 "${staging}/mcp_server/mail_actions.py" "${target}/mail_actions.py"
+install -m 0644 "${staging}/mcp_server/calendar_actions.py" "${target}/calendar_actions.py"
 service_user=$(systemctl show "$unit" -p User --value)
 service_user=${service_user:-root}
 install -d -o "$service_user" -m 0700 /var/lib/raschini-mail-mcp
@@ -50,9 +56,15 @@ if ! systemctl restart "$unit" || ! systemctl is-active --quiet "$unit"; then
   else
     rm -f "${target}/mail_actions.py"
   fi
+  if [[ -f "${backup}/calendar_actions.py" ]]; then
+    cp -p "${backup}/calendar_actions.py" "${target}/calendar_actions.py"
+  else
+    rm -f "${target}/calendar_actions.py"
+  fi
   systemctl restart "$unit" || true
   echo "Deployment failed; previous files restored from ${backup}." >&2
   exit 1
 fi
 echo "R Mail code installed; dedicated service active. Rollback copy: ${backup}"
 echo 'SMTP sending remains disabled until SMTP_USER and SMTP_PASSWORD are configured.'
+echo 'Calendar reading requires CALDAV_USER and CALDAV_PASSWORD in the private service environment.'
