@@ -11,3 +11,15 @@ services:
 
     # No external ports exposed.
     # Internal worker only.
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; print('healthcheck ok')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
