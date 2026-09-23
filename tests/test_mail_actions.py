@@ -12,6 +12,8 @@ import mail_actions as mail
 
 class FakeIMAP:
     commands = []
+    uids = [7, 8, 9]
+    sender_for_10 = "Partner <partner@example.org>"
 
     def __init__(self, *args, **kwargs):
         self.msg = EmailMessage()
@@ -32,9 +34,11 @@ class FakeIMAP:
     def uid(self, command, *args):
         self.commands.append((command, args))
         if command == "search":
-            return "OK", [b"7 8 9"]
-        if args[0] != "9":
+            return "OK", [" ".join(str(i) for i in self.uids).encode()]
+        if args[0] not in ("9", "10"):
             return "OK", []
+        if args[0] == "10":
+            self.msg.replace_header("From", self.sender_for_10)
         return "OK", [(b"header", self.msg.as_bytes()), b")"]
 
     def logout(self):
@@ -73,6 +77,8 @@ class WorkflowTests(unittest.TestCase):
         self.imap = patch.object(mail.imaplib, "IMAP4_SSL", FakeIMAP)
         self.imap.start()
         FakeIMAP.commands.clear()
+        FakeIMAP.uids = [7, 8, 9]
+        FakeIMAP.sender_for_10 = "Partner <partner@example.org>"
         FakeSMTP.sent.clear()
 
     def tearDown(self):
@@ -109,6 +115,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(active["uid_floor"], 9)
         self.assertEqual(mail.run_auto_replies()["attempted"], 0)
         self.assertEqual(FakeSMTP.sent, [])
+
+    def test_auto_rule_only_sends_matching_new_message_once(self):
+        rule = mail.create_auto_rule("partnerships", "partner@example.org", "Partnership", "We received your request", daily_limit=1)
+        mail.set_auto_rule(rule["rule_id"], True, "ENABLE " + rule["rule_id"])
+        FakeIMAP.uids = [7, 8, 9, 10]
+        FakeIMAP.sender_for_10 = "Other <other@example.org>"
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            self.assertEqual(mail.run_auto_replies()["attempted"], 0)
+            FakeIMAP.sender_for_10 = "Partner <partner@example.org>"
+            self.assertEqual(mail.run_auto_replies()["attempted"], 1)
+            self.assertEqual(mail.run_auto_replies()["attempted"], 0)
+        self.assertEqual(len(FakeSMTP.sent), 1)
+        self.assertEqual(FakeSMTP.sent[0][0].get_content().strip(), "We received your request")
 
 
 if __name__ == "__main__":
