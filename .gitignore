@@ -1,0 +1,17 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
