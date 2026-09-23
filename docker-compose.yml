@@ -1,0 +1,13 @@
+name: raschini-mail-assistant
+
+services:
+  mail-reader:
+    container_name: raschini-mail-reader
+    build:
+      context: ./services/mail-reader
+    env_file:
+      - .env
+    restart: unless-stopped
+
+    # No external ports exposed.
+    # Internal worker only.
