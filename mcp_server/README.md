@@ -6,6 +6,7 @@ Credentials and work history stay on the private host. No public listener is req
 ## Tools
 
 - `list_recent_mail` and `find_mail`: INBOX headers.
+- `list_mail_calendars` and `list_mail_calendar_events(start_date,end_date,calendar_id,limit)`: read-only CalDAV calendars and events. The end date is exclusive; default timezone is Europe/Moscow. The server returns recurrence rules without expanding them into each occurrence.
 - `read_mail(uid)`: text of a selected message, sender, recipients and attachment filenames; uses `BODY.PEEK[]` with INBOX selected `readonly=True`. Attachments are not returned.
 - `read_mail_thread(uid)`: related messages in the scanned INBOX window, using Message-ID/References; identifies missing Sent-folder context.
 - `draft_mail_reply(uid,body)`: creates a local, unsent draft to the single Reply-To or From address. Show the returned full recipient, subject and body to the user.
@@ -18,6 +19,8 @@ Auto reply rules deliberately do not generate freeform AI replies. For partnersh
 ## Private host setup
 
 Keep the existing `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_HOST`, `MAIL_PORT` environment. For sending, set `SMTP_USER` to the exact same mailbox as `MAIL_USER`, a valid `SMTP_PASSWORD` application password, and optionally `SMTP_HOST` (default `smtp.mail.ru`), `SMTP_PORT` (default `465`). There is no send capability without both SMTP credentials.
+
+For calendar reading, add `CALDAV_USER` (full Mail.ru mailbox address) and `CALDAV_PASSWORD` (a separately issued external-app password) to the existing service's protected environment. Optionally set `CALDAV_TIMEZONE=Europe/Moscow`; the endpoint defaults to `https://calendar.mail.ru/`. Do not paste a password into ChatGPT or check it into GitHub. `CALDAV_URL` can change the initial discovery path but is restricted to HTTPS on `calendar.mail.ru`. Verify that the corporate account has CalDAV enabled before promising calendar access. CalDAV responses are not stored in the local work journal.
 
 Set `MAIL_STATE_DIR` to a dedicated directory owned by the service account with mode `0700` (default `/var/lib/raschini-mail-mcp`). The SQLite file stores report metadata and temporary reply bodies for up to 24 hours. It must never be committed or backed up to a shared repository. The file is mode `0600`; the service process should use `UMask=0077`. Restrict access to the tunnel and MCP app to the intended user or workspace.
 
