@@ -23,6 +23,8 @@ Set `MAIL_STATE_DIR` to a dedicated directory owned by the service account with 
 
 Deploy `server.py` and `mail_actions.py` together in the same directory, retaining the existing MCP venv. Test local read and SMTP with a test message before enabling any automatic rule. A tunnel client/service restart may be required for the new tool list to be discovered in ChatGPT. The prior header tools are unchanged.
 
+The one-command host rollout is `scripts/deploy_r_mail.sh` in this branch. It checks the known service path, downloads code at a fixed commit, runs isolated tests, backs up the old server and rolls back if the dedicated service cannot restart. If the host uses another path, it stops without changing the service; inspect that host layout before adapting it. It does not enable SMTP or automatic sending.
+
 For optional automation, invoke `run_auto_replies()` from a scheduled private process using the *same* credential environment and state directory, or call `execute_auto_reply_check` from an approved scheduler. Start with one narrowly scoped reviewed rule. Rule changes and mail actions appear in `get_mail_work_report`. No rule is enabled by deploying this release.
 
 Limitations: INBOX only for reading; attachments are listed but not opened; `read_mail` returns at most 50,000 body characters from a message up to 2 MB; a thread search covers only recent INBOX and not Sent. A failed SMTP call can have an uncertain outcome, and the service refuses to automatically retry it.
