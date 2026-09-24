@@ -129,7 +129,7 @@ def save_sent_copy(message, delay_seconds=2):
     Never retry APPEND after a transport error: its outcome may be ambiguous.
     """
     message_id = str(message.get("Message-ID", ""))
-    if not re.fullmatch(r"<[^<>\\r\\n\\s]+>", message_id):
+    if not re.fullmatch(r"<[^<>\r\n\s]+>", message_id):
         raise ValueError("Outgoing message requires a valid Message-ID")
     conn = _connect()
     try:
@@ -141,7 +141,7 @@ def save_sent_copy(message, delay_seconds=2):
             time.sleep(delay_seconds)
             if _message_exists(conn, message_id):
                 return {"saved": True, "method": "provider", "folder": folder}
-        status, _ = conn.append(folder, r"(\\Seen)", imaplib.Time2Internaldate(
+        status, _ = conn.append(folder, r"(\Seen)", imaplib.Time2Internaldate(
             datetime.now(timezone.utc)), message.as_bytes(policy=email.policy.SMTP))
         if status != "OK":
             raise RuntimeError("IMAP APPEND did not confirm success; do not retry blindly")
