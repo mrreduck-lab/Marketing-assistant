@@ -36,7 +36,7 @@ def _decode(raw: str | None) -> str:
 
 
 @contextmanager
-def mailbox(write: bool = False) -> Iterator[imaplib.IMAP4_SSL]:
+def mailbox() -> Iterator[imaplib.IMAP4_SSL]:
     """Authenticate for this operation only; caller chooses a verified folder."""
     user, password = os.environ.get("MAIL_USER"), os.environ.get("MAIL_PASSWORD")
     if not user or not password:
