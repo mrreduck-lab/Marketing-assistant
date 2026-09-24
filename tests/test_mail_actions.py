@@ -131,6 +131,41 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
 
+    def test_draft_is_really_saved_before_success(self):
+        draft = mail.prepare_reply("9", "Please review the proposal.")
+        self.assertTrue(draft["mailbox_draft_verified"])
+        self.assertIn(draft["message_id"], FakeIMAP.draft_ids)
+        self.assertIn(("append", ('"Drafts"', "\\\\Draft")), FakeIMAP.commands)
+
+    def test_imap_draft_failure_does_not_create_sendable_draft(self):
+        FakeIMAP.append_fails = True
+        with self.assertRaises(RuntimeError):
+            mail.prepare_reply("9", "A failed draft")
+        with mail.database() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM drafts").fetchone()[0], 0)
+
+    def test_sent_already_on_provider_is_not_appended_again(self):
+        draft = mail.prepare_reply("9", "No duplicate sent entry.")
+        original_send = FakeSMTP.send_message
+        def auto_saved(smtp, msg, **kwargs):
+            FakeIMAP.sent_ids.add(msg["Message-ID"])
+            original_send(smtp, msg, **kwargs)
+        with patch.object(FakeSMTP, "send_message", auto_saved), patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            result = mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+        self.assertTrue(result["sent_folder_verified"])
+        self.assertEqual(len([x for x in FakeIMAP.commands if x == ("append", ('"Sent"', "\\\\Seen"))]), 0)
+
+    def test_imap_sent_failure_does_not_resend_smtp(self):
+        draft = mail.prepare_reply("9", "SMTP accepted but Sent unavailable.")
+        FakeIMAP.append_fails = True
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            result = mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+            self.assertEqual(result["status"], "smtp_accepted_sent_unverified")
+            self.assertEqual(len(FakeSMTP.sent), 1)
+            with self.assertRaises(ValueError):
+                mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+        self.assertEqual(len(FakeSMTP.sent), 1)
+
     def test_auto_rule_stays_disabled_and_skips_existing_mail(self):
         rule = mail.create_auto_rule("partnerships", "partner@example.org", "Partnership", "Thank you")
         self.assertFalse(rule["enabled"])
