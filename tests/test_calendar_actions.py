@@ -50,10 +50,56 @@ class CalendarTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 calendar.list_events('2026-09-01', '2026-09-02', 'https://example.com/private')
 
+
+    def test_preview_and_create_verified_event(self):
+        cal = {'id': 'https://calendar.mail.ru/me/home/main/', 'name': 'Рабочий'}
+        state = {'saved': b'', 'puts': 0}
+        def request(method, url, body=b'', depth=None, content_type='', extra_headers=None):
+            if method == 'GET':
+                if not state['saved']:
+                    raise RuntimeError('CalDAV returned HTTP 404')
+                return state['saved']
+            if method == 'PUT':
+                self.assertEqual(extra_headers, {'If-None-Match': '*'})
+                self.assertIn(b'BEGIN:VEVENT', body)
+                self.assertIn(b'DTSTART:20260925T070000Z', body)
+                state['saved'] = body
+                state['puts'] += 1
+                return b''
+            raise AssertionError(method)
+        with patch.object(calendar, '_calendars', return_value=[cal]), \
+             patch.object(calendar, '_request', side_effect=request), \
+             patch.dict(os.environ, {'CALDAV_USER': 'mail@example.com', 'CALDAV_PASSWORD': 'secret'}):
+            preview = calendar.preview_calendar_event('Проверка', '2026-09-25T10:00:00+03:00',
+                                                      '2026-09-25T10:30:00+03:00')
+            self.assertEqual(preview['status'], 'preview_only')
+            self.assertEqual(state['puts'], 0)
+            with self.assertRaises(ValueError):
+                calendar.create_calendar_event('Изменено', '2026-09-25T10:00:00+03:00',
+                                               '2026-09-25T10:30:00+03:00', preview['approval'])
+            first = calendar.create_calendar_event('Проверка', '2026-09-25T10:00:00+03:00',
+                                                  '2026-09-25T10:30:00+03:00', preview['approval'])
+            second = calendar.create_calendar_event('Проверка', '2026-09-25T10:00:00+03:00',
+                                                   '2026-09-25T10:30:00+03:00', preview['approval'])
+            self.assertEqual(first['status'], 'created')
+            self.assertEqual(second['status'], 'already_exists')
+            self.assertEqual(state['puts'], 1)
+
+    def test_timezone_and_calendar_selection_are_required(self):
+        with patch.object(calendar, '_calendars', return_value=[
+            {'id': 'https://calendar.mail.ru/a/', 'name': 'A'},
+            {'id': 'https://calendar.mail.ru/b/', 'name': 'B'}]):
+            with self.assertRaises(ValueError):
+                calendar.preview_calendar_event('Test', '2026-09-25T10:00:00+03:00',
+                                                '2026-09-25T11:00:00+03:00')
+            with self.assertRaises(ValueError):
+                calendar.preview_calendar_event('Test', '2026-09-25T10:00:00',
+                                                '2026-09-25T11:00:00')
+
     def test_reject_external_url_and_missing_calendar_secret(self):
         with self.assertRaises(ValueError):
             calendar._url('https://example.com/steal')
-        with patch.dict(os.environ, {'CALDAV_USER': '', 'CALDAV_PASSWORD': ''}):
+        with patch.dict(os.environ, {'CALDAV_USER': '', 'CALDAV_PASSWORD': '', 'MAIL_USER': '', 'MAIL_PASSWORD': ''}):
             with self.assertRaises(RuntimeError):
                 calendar._credentials()
 
