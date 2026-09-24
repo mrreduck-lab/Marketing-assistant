@@ -15,7 +15,7 @@ import ssl
 import time
 import uuid
 
-from mailbox_folders import mailbox, resolve_folder, has_message_id, append_message
+from mailbox_folders import mailbox, has_message_id, append_message, remove_draft_after_verified_sent
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.header import decode_header
@@ -337,15 +337,28 @@ def send_reply(draft_id, approval):
             verified = has_message_id(conn, "sent", message_id)
     except Exception:
         verified = False
+    draft_removed = False
+    if verified:
+        try:
+            with mailbox() as conn:
+                draft_removed = remove_draft_after_verified_sent(conn, message_id)
+        except Exception:
+            # Mail was already SMTP accepted and verified in Sent: cleanup
+            # failure is not a send failure and must never cause a retry.
+            draft_removed = False
     with database() as db:
         if verified:
             db.execute("UPDATE mail_delivery SET sent_verified=1 WHERE draft_id=?", (draft_id,))
             _event(db, "sent_verified_imap", uid, recipient)
+            if not draft_removed:
+                _event(db, "draft_cleanup_pending", uid, recipient,
+                       note="Sent verified; safe UIDPLUS Drafts cleanup unavailable")
         else:
             _event(db, "sent_unverified_imap", uid, recipient,
                    note="SMTP accepted; manual Sent reconciliation required, no resend")
     return {"status": "sent" if verified else "smtp_accepted_sent_unverified",
-            "smtp_accepted": True, "sent_folder_verified": verified, "to": recipient,
+            "smtp_accepted": True, "sent_folder_verified": verified,
+            "draft_removed_from_mailbox": draft_removed, "to": recipient,
             "subject": subject, "message_id": message_id,
             "note": "" if verified else "Do not retry SMTP; reconcile Sent by Message-ID."}
 
