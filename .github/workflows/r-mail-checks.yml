@@ -1,0 +1,29 @@
+name: R Mail checks
+
+on:
+  pull_request:
+    paths:
+      - 'mcp_server/**'
+      - 'tests/test_mail_actions.py'
+      - 'tests/test_mailbox_folders.py'
+      - 'tests/test_calendar_actions.py'
+      - '.github/workflows/r-mail-checks.yml'
+  push:
+    branches:
+      - feature/r-mail-portable-mailbox-v2
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python syntax and offline tests
+        run: |
+          python -m compileall -q mcp_server tests
+          python -m unittest discover -s tests -v
+          bash -n scripts/deploy_r_mail_v2.sh
