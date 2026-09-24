@@ -287,10 +287,22 @@ def send_reply(draft_id, approval):
         with database() as db:
             _event(db, "send_uncertain", uid, recipient, note="Check Sent folder; no automatic retry")
         raise RuntimeError("SMTP outcome uncertain. Check Sent folder before attempting a new draft") from None
+    # SMTP accepted the message. Do not send it again if IMAP filing fails.
     with database() as db:
         db.execute("UPDATE drafts SET state='sent',body='' WHERE id=?", (draft_id,))
         _event(db, "sent", uid, recipient)
-    return {"status": "sent", "to": recipient, "subject": subject, "message_id": msg["Message-ID"]}
+    try:
+        from sent_actions import save_sent_copy
+        filing = save_sent_copy(msg)
+    except Exception:
+        with database() as db:
+            _event(db, "sent_copy_unverified", uid, recipient,
+                   note="SMTP accepted; check Sent manually by Message-ID; never resend")
+        return {"status": "sent", "sent_copy": "unverified", "to": recipient,
+                "subject": subject, "message_id": msg["Message-ID"],
+                "warning": "SMTP accepted the message but Sent filing was not verified. Do not resend."}
+    return {"status": "sent", "sent_copy": filing["method"], "to": recipient,
+            "subject": subject, "message_id": msg["Message-ID"]}
 
 
 def log_work(uid, action, category="", note=""):
