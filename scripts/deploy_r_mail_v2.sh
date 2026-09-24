@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-readonly revision='e9f21da9d4f48d24bd506493c7e435acb2f96a4d'
+readonly revision='8a6073ed3d2ef3e706aa258c55c9fd0278e35b39'
 readonly repo='mrreduck-lab/Marketing-assistant'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
