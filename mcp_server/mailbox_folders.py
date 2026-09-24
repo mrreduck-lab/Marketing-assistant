@@ -55,6 +55,24 @@ def mailbox(write: bool = False) -> Iterator[imaplib.IMAP4_SSL]:
             pass
 
 
+
+def _decode_imap_utf7(raw_name: bytes) -> str:
+    """Decode RFC 3501 modified UTF-7 without an optional dependency."""
+    import base64
+    text = raw_name.decode("ascii", errors="surrogateescape")
+    def convert(match):
+        sequence = match.group(1)
+        if not sequence:
+            return "&"
+        padded = sequence.replace(",", "/")
+        padded += "=" * ((-len(padded)) % 4)
+        try:
+            return base64.b64decode(padded).decode("utf-16-be")
+        except (ValueError, UnicodeError):
+            return match.group(0)
+    return re.sub(r"&([A-Za-z0-9+,]*)-", convert, text)
+
+
 def folders(conn) -> list[dict[str, str]]:
     status, response = conn.list()
     if status != "OK":
@@ -71,15 +89,8 @@ def folders(conn) -> list[dict[str, str]]:
         raw_name = match.group(2).strip()
         if raw_name.startswith(b'"') and raw_name.endswith(b'"'):
             raw_name = raw_name[1:-1].replace(b'\\\"', b'"').replace(b'\\\\', b'\\')
-        try:
-            name = imaplib.IMAP4._decode_utf7(raw_name)  # only on runtimes where available
-        except (AttributeError, UnicodeError):
-            # IMAP UTF-7 is decoded by imaplib's ASCII transport in some servers;
-            # non-ASCII names are handled by explicit configuration if required.
-            try:
-                name = raw_name.decode("utf-8")
-            except UnicodeError:
-                name = raw_name.decode("ascii", errors="replace")
+        # IMAP LIST names use modified UTF-7 (RFC 3501), not UTF-8.
+        name = _decode_imap_utf7(raw_name)
         result.append({"name": name, "wire_name": raw_name.decode("ascii", errors="surrogateescape"),
                        "flags": " ".join(flags)})
         if len(result) >= FOLDER_LIMIT:
