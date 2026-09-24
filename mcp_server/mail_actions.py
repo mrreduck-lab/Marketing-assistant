@@ -264,19 +264,23 @@ def prepare_reply(uid, body):
     from_user = os.environ.get("MAIL_USER", "")
     message_id = make_msgid(domain=from_user.rsplit("@", 1)[-1])
     draft = _message_for_draft(from_user, addresses[0], subject, body, reply_id, references, message_id)
+    # Register approval state before APPEND; a failed IMAP save never leaves
+    # a sendable draft. Mark it pending only after round-trip verification.
+    with database() as db:
+        db.execute("INSERT INTO drafts(id,uid,recipient,subject,body,reply_id,references_header,created,state) VALUES(?,?,?,?,?,?,?,?,?)",
+                   (draft_id, _uid(uid), addresses[0], subject[:500], body, reply_id[:500], references[:1000], int(time.time()), "preparing"))
+        db.execute("""CREATE TABLE IF NOT EXISTS mail_delivery (
+            draft_id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+            smtp_accepted INTEGER NOT NULL DEFAULT 0,
+            sent_verified INTEGER NOT NULL DEFAULT 0)""")
+        db.execute("INSERT INTO mail_delivery(draft_id,message_id) VALUES(?,?)", (draft_id, message_id))
     # Verify the mailbox really contains the draft before answering ChatGPT.
     with mailbox() as conn:
         append_message(conn, "drafts", draft, "\\Draft")
         if not has_message_id(conn, "drafts", message_id):
             raise RuntimeError("Draft APPEND was not verified in provider Drafts")
     with database() as db:
-        db.execute("INSERT INTO drafts(id,uid,recipient,subject,body,reply_id,references_header,created) VALUES(?,?,?,?,?,?,?,?)",
-                   (draft_id, _uid(uid), addresses[0], subject[:500], body, reply_id[:500], references[:1000], int(time.time())))
-        db.execute("""CREATE TABLE IF NOT EXISTS mail_delivery (
-            draft_id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
-            smtp_accepted INTEGER NOT NULL DEFAULT 0,
-            sent_verified INTEGER NOT NULL DEFAULT 0)""")
-        db.execute("INSERT INTO mail_delivery(draft_id,message_id) VALUES(?,?)", (draft_id, message_id))
+        db.execute("UPDATE drafts SET state='pending' WHERE id=? AND state='preparing'", (draft_id,))
         _event(db, "draft_saved_imap", _uid(uid), addresses[0])
     return {"draft_id": draft_id, "to": addresses[0], "subject": subject,
             "body": body, "source_uid": _uid(uid), "message_id": message_id,
