@@ -205,6 +205,39 @@ def has_message_id(conn, purpose: str, message_id: str) -> bool:
     return bool(result and result[0] and result[0].strip())
 
 
+
+def remove_draft_after_verified_sent(conn, message_id: str) -> bool:
+    """Safely remove only the matching Draft; never EXPUNGE unrelated messages.
+
+    Uses UIDPLUS UID EXPUNGE if supported. A server without UIDPLUS retains the
+    visible draft rather than risking deletion of unrelated messages.
+    """
+    if not re.fullmatch(r"<[^<>\\r\\n]{1,250}>", message_id):
+        raise ValueError("Invalid Message-ID")
+    status, caps = conn.capability()
+    if status != "OK" or not any(b"UIDPLUS" in x.upper().split() for x in caps if isinstance(x, bytes)):
+        return False
+    folder = resolve_folder(conn, "drafts")
+    _select(conn, folder, readonly=False)
+    status, hits = conn.uid("search", None, "HEADER", "Message-ID", '"' + message_id + '"')
+    if status != "OK":
+        raise RuntimeError("Cannot locate saved draft for cleanup")
+    uids = (hits[0] or b"").split() if hits else []
+    if not uids:
+        return True
+    # Never act on nondecimal identifiers, and never issue a global EXPUNGE.
+    for uid in uids:
+        if not re.fullmatch(rb"[1-9][0-9]{0,15}", uid):
+            raise RuntimeError("Unsafe draft UID")
+        status, _ = conn.uid("store", uid.decode("ascii"), "+FLAGS.SILENT", "(\\\\Deleted)")
+        if status != "OK":
+            raise RuntimeError("Cannot mark saved draft deleted")
+        status, _ = conn.uid("expunge", uid.decode("ascii"))
+        if status != "OK":
+            raise RuntimeError("UID EXPUNGE failed; check Drafts manually")
+    return True
+
+
 def append_message(conn, purpose: str, msg: EmailMessage, flags: str = "") -> None:
     folder = resolve_folder(conn, purpose)
     raw = msg.as_bytes(policy=email.policy.SMTP)
