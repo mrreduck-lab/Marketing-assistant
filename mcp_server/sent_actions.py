@@ -37,7 +37,7 @@ def _folders(conn):
         flags = match.group(1).decode("ascii", "replace").lower()
         name = match.group(2).decode("ascii", "replace").strip()
         if name.startswith('"') and name.endswith('"'):
-            name = name[1:-1].replace(r'\"', '"').replace(r'\\', r'\')
+            name = name[1:-1]
         if r'\noselect' not in flags:
             folders.append({"name": name, "sent": r'\sent' in flags})
     return folders
