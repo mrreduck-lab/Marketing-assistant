@@ -135,7 +135,7 @@ class WorkflowTests(unittest.TestCase):
         draft = mail.prepare_reply("9", "Please review the proposal.")
         self.assertTrue(draft["mailbox_draft_verified"])
         self.assertIn(draft["message_id"], FakeIMAP.draft_ids)
-        self.assertTrue(any(action == "append" and args[0] == '"Drafts"' for action, args in FakeIMAP.commands if action == "append"))
+        self.assertTrue(any(item[0] == "append" and item[1][0] == '"Drafts"' for item in FakeIMAP.commands))
 
     def test_imap_draft_failure_does_not_create_sendable_draft(self):
         FakeIMAP.append_fails = True
@@ -153,7 +153,7 @@ class WorkflowTests(unittest.TestCase):
         with patch.object(FakeSMTP, "send_message", auto_saved), patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
             result = mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
         self.assertTrue(result["sent_folder_verified"])
-        self.assertEqual(len([x for action, args in FakeIMAP.commands if action == "append" and args[0] == '"Sent"']), 0)
+        self.assertEqual(len([item for item in FakeIMAP.commands if item[0] == "append" and item[1][0] == '"Sent"']), 0)
 
     def test_imap_sent_failure_does_not_resend_smtp(self):
         draft = mail.prepare_reply("9", "SMTP accepted but Sent unavailable.")
