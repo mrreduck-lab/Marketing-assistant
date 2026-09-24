@@ -8,6 +8,7 @@ from email.utils import parsedate_to_datetime
 
 from mcp.server.fastmcp import FastMCP
 from calendar_actions import list_calendars, list_events
+from sent_actions import list_folders, list_sent, read_sent, smtp_status
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
                           prepare_reply, read_message, read_thread, run_auto_replies,
@@ -192,6 +193,30 @@ def change_auto_reply_rule(rule_id: str, enabled: bool, approval: str) -> dict:
 def execute_auto_reply_check() -> dict:
     """Check enabled rules once. A private timer can invoke the same function unattended."""
     return run_auto_replies()
+
+
+@mcp.tool()
+def list_mail_folders() -> dict:
+    """Discover IMAP folders and the Sent special-use flag without changing mail."""
+    return list_folders()
+
+
+@mcp.tool()
+def list_sent_mail(limit: int = 20, query: str = "") -> dict:
+    """Search up to 500 recent Sent headers by recipient, sender or subject."""
+    return list_sent(limit, query)
+
+
+@mcp.tool()
+def read_sent_mail(uid: str, max_chars: int = 20000) -> dict:
+    """Read a message by UID from Sent; Sent and INBOX UIDs are independent."""
+    return read_sent(uid, max_chars)
+
+
+@mcp.tool()
+def check_smtp_configuration() -> dict:
+    """Check whether SMTP credentials are configured; never reveal secrets or send mail."""
+    return smtp_status()
 
 
 if __name__ == "__main__":
