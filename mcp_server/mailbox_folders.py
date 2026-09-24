@@ -198,7 +198,7 @@ def has_message_id(conn, purpose: str, message_id: str) -> bool:
         raise ValueError("Invalid Message-ID")
     folder = resolve_folder(conn, purpose)
     _select(conn, folder, readonly=True)
-    # Quoted IMAP SEARCH parameter; generated Message-ID, never untrusted freeform.
+    # Restrict search key to a generated Message-ID; avoid arbitrary IMAP search syntax.
     status, result = conn.uid("search", None, "HEADER", "Message-ID", '"' + message_id + '"')
     if status != "OK":
         raise RuntimeError("Cannot verify Message-ID in " + purpose)
