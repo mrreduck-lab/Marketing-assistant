@@ -8,6 +8,7 @@ from email.utils import parsedate_to_datetime
 
 from mcp.server.fastmcp import FastMCP
 from calendar_actions import list_calendars, list_events
+from mailbox_folders import list_folders, sent_headers, sent_message
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
                           prepare_reply, read_message, read_thread, run_auto_replies,
@@ -110,6 +111,32 @@ def find_mail(query: str, scan_limit: int = 100) -> list[dict[str, str]]:
         item for item in _headers(scan_limit)
         if needle in item["from"].casefold() or needle in item["subject"].casefold()
     ]
+
+
+@mcp.tool()
+def list_mail_folders() -> list[dict[str, str]]:
+    """Inspect provider IMAP folders and special-use flags; never reveal credentials."""
+    return list_folders()
+
+
+@mcp.tool()
+def list_sent_mail(limit: int = 20) -> list[dict]:
+    """Read up to 50 recent Sent headers, without changing read flags."""
+    return sent_headers(limit=limit)
+
+
+@mcp.tool()
+def find_sent_mail(query: str, limit: int = 20) -> list[dict]:
+    """Search recipients and subjects in the 500 most recent Sent messages."""
+    if not query.strip():
+        raise ValueError("Nonempty search query required")
+    return sent_headers(limit=limit, query=query.strip())
+
+
+@mcp.tool()
+def read_sent_mail(uid: str, max_chars: int = 20000) -> dict:
+    """Read one message in Sent by UID; attachment bytes are never returned."""
+    return sent_message(uid, max_chars)
 
 
 @mcp.tool()
