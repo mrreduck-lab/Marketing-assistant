@@ -155,6 +155,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(result["sent_folder_verified"])
         self.assertEqual(len([item for item in FakeIMAP.commands if item[0] == "append" and item[1][0] == '"Sent"']), 0)
 
+    def test_provider_ui_sent_draft_skips_smtp(self):
+        draft = mail.prepare_reply("9", "Already sent in Mail.ru.")
+        FakeIMAP.sent_ids.add(draft["message_id"])
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            result = mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+        self.assertEqual(result["status"], "already_sent_in_provider")
+        self.assertEqual(FakeSMTP.sent, [])
+
+    def test_deleted_provider_draft_skips_smtp(self):
+        draft = mail.prepare_reply("9", "User deleted this draft.")
+        FakeIMAP.draft_ids.clear()
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+            with self.assertRaises(RuntimeError):
+                mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])
+        self.assertEqual(FakeSMTP.sent, [])
+
     def test_imap_sent_failure_does_not_resend_smtp(self):
         draft = mail.prepare_reply("9", "SMTP accepted but Sent unavailable.")
         FakeIMAP.append_fails = True
