@@ -31,15 +31,15 @@ def _folders(conn):
     for raw in lines or []:
         if not isinstance(raw, bytes):
             continue
-        match = re.match(rb'^\\((.*?)\\)\\s+(?:"[^"]*"|NIL)\\s+(.+)$', raw)
+        match = re.match(rb'^\((.*?)\)\s+(?:"[^"]*"|NIL)\s+(.+)$', raw)
         if not match:
             continue
         flags = match.group(1).decode("ascii", "replace").lower()
         name = match.group(2).decode("ascii", "replace").strip()
         if name.startswith('"') and name.endswith('"'):
-            name = name[1:-1].replace(r'\\"', '"').replace(r'\\\\', r'\\')
-        if r'\\noselect' not in flags:
-            folders.append({"name": name, "sent": r'\\sent' in flags})
+            name = name[1:-1].replace(r'\"', '"').replace(r'\\', r'\')
+        if r'\noselect' not in flags:
+            folders.append({"name": name, "sent": r'\sent' in flags})
     return folders
 
 
