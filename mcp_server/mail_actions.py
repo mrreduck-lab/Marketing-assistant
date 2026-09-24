@@ -311,7 +311,28 @@ def send_reply(draft_id, approval):
         if row is None or row[7] != "pending" or row[6] < time.time() - DRAFT_TTL:
             raise ValueError("Draft missing, expired or already sent/attempted")
         uid, recipient, subject, body, reply_id, references, _, _, message_id = row
-        db.execute("UPDATE drafts SET state='sending' WHERE id=?", (draft_id,))
+    # The user may already have sent or deleted the visible draft in Mail.ru.
+    # If Sent cannot be checked, fail closed BEFORE any SMTP side effect.
+    with mailbox() as conn:
+        already_sent = has_message_id(conn, "sent", message_id)
+        draft_still_exists = False if already_sent else has_message_id(conn, "drafts", message_id)
+    if already_sent:
+        with database() as db:
+            changed = db.execute("UPDATE drafts SET state='sent',body='' WHERE id=? AND state='pending'",
+                                 (draft_id,)).rowcount
+            if not changed:
+                raise ValueError("Draft already sent or attempted")
+            db.execute("UPDATE mail_delivery SET sent_verified=1 WHERE draft_id=?", (draft_id,))
+            _event(db, "already_sent_in_provider", uid, recipient)
+        return {"status": "already_sent_in_provider", "smtp_accepted_by_r_mail": False,
+                "sent_folder_verified": True, "to": recipient, "subject": subject,
+                "message_id": message_id}
+    if not draft_still_exists:
+        raise RuntimeError("Provider draft is missing; no email was sent")
+    with database() as db:
+        changed = db.execute("UPDATE drafts SET state='sending' WHERE id=? AND state='pending'", (draft_id,)).rowcount
+        if changed != 1:
+            raise ValueError("Draft already sent or attempted")
         _event(db, "send_attempt", uid, recipient)
     msg = _message_for_draft(smtp_user, recipient, subject, body, reply_id, references, message_id)
     # If a previous SMTP attempt timed out, never re-send automatically.
