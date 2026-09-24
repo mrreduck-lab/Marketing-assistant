@@ -14,6 +14,9 @@ class FakeIMAP:
     commands = []
     uids = [7, 8, 9]
     sender_for_10 = "Partner <partner@example.org>"
+    draft_ids = set()
+    sent_ids = set()
+    append_fails = False
 
     def __init__(self, *args, **kwargs):
         self.msg = EmailMessage()
@@ -28,11 +31,29 @@ class FakeIMAP:
         return "OK", []
 
     def select(self, *args, **kwargs):
+        self.selected = args[0]
         self.commands.append(("select", args, kwargs))
+        return "OK", []
+
+    def list(self):
+        return "OK", [b"(\\\\HasNoChildren \\\\Drafts) \"/\" \"Drafts\"", b"(\\\\HasNoChildren \\\\Sent) \"/\" \"Sent\""]
+
+    def append(self, folder, flags, when, data):
+        self.commands.append(("append", (folder, flags)))
+        if self.append_fails:
+            return "NO", []
+        msg = __import__("email").message_from_bytes(data)
+        if "Drafts" in folder:
+            self.draft_ids.add(msg["Message-ID"])
+        elif "Sent" in folder:
+            self.sent_ids.add(msg["Message-ID"])
         return "OK", []
 
     def uid(self, command, *args):
         self.commands.append((command, args))
+        if command == "search" and args[0] is None and args[1] == "HEADER":
+            ids = self.draft_ids if "Drafts" in self.selected else self.sent_ids
+            return "OK", [b"11" if args[-1].strip('"') in ids else b""]
         if command == "search":
             return "OK", [" ".join(str(i) for i in self.uids).encode()]
         if args[0] not in ("9", "10"):
@@ -80,6 +101,9 @@ class WorkflowTests(unittest.TestCase):
         FakeIMAP.uids = [7, 8, 9]
         FakeIMAP.sender_for_10 = "Partner <partner@example.org>"
         FakeSMTP.sent.clear()
+        FakeIMAP.draft_ids.clear()
+        FakeIMAP.sent_ids.clear()
+        FakeIMAP.append_fails = False
 
     def tearDown(self):
         self.imap.stop()
