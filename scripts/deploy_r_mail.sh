@@ -2,7 +2,7 @@
 # Run on the private mail host as root. No credentials are printed or copied.
 set -Eeuo pipefail
 
-readonly revision='2a1427c9f6c9da592f4f4527473f2ad7077d30e8'
+readonly revision='6fbe964d61d3a49bd08998502ef310c8b2bf24d7'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
 readonly python="${base}/.venv-mcp/bin/python3"
@@ -29,14 +29,19 @@ trap cleanup EXIT
 mkdir -p "${staging}/mcp_server" "${staging}/tests"
 curl -fsSL "${source}/mcp_server/server.py" -o "${staging}/mcp_server/server.py"
 curl -fsSL "${source}/mcp_server/mail_actions.py" -o "${staging}/mcp_server/mail_actions.py"
-curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py"
+curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py"
+curl -fsSL "${source}/mcp_server/sent_actions.py" -o "${staging}/mcp_server/sent_actions.py"
 curl -fsSL "${source}/tests/test_mail_actions.py" -o "${staging}/tests/test_mail_actions.py"
 curl -fsSL "${source}/tests/test_calendar_actions.py" -o "${staging}/tests/test_calendar_actions.py"
+curl -fsSL "${source}/tests/test_sent_actions.py" -o "${staging}/tests/test_sent_actions.py"
 "$python" -c 'import mcp'
-"$python" -m unittest discover -s "${staging}/tests" -q
+PYTHONPATH="${staging}/mcp_server" "$python" -m unittest discover -s "${staging}/tests" -q
 "$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py"
 
 cp -p "${target}/server.py" "${backup}/server.py"
+if [[ -f "${target}/sent_actions.py" ]]; then
+  cp -p "${target}/sent_actions.py" "${backup}/sent_actions.py"
+fi
 if [[ -f "${target}/mail_actions.py" ]]; then
   cp -p "${target}/mail_actions.py" "${backup}/mail_actions.py"
 fi
@@ -44,6 +49,7 @@ if [[ -f "${target}/calendar_actions.py" ]]; then
   cp -p "${target}/calendar_actions.py" "${backup}/calendar_actions.py"
 fi
 install -m 0644 "${staging}/mcp_server/server.py" "${target}/server.py"
+install -m 0644 "${staging}/mcp_server/sent_actions.py" "${target}/sent_actions.py"
 install -m 0644 "${staging}/mcp_server/mail_actions.py" "${target}/mail_actions.py"
 install -m 0644 "${staging}/mcp_server/calendar_actions.py" "${target}/calendar_actions.py"
 service_user=$(systemctl show "$unit" -p User --value)
@@ -51,6 +57,11 @@ service_user=${service_user:-root}
 install -d -o "$service_user" -m 0700 /var/lib/raschini-mail-mcp
 if ! systemctl restart "$unit" || ! systemctl is-active --quiet "$unit"; then
   cp -p "${backup}/server.py" "${target}/server.py"
+  if [[ -f "${backup}/sent_actions.py" ]]; then
+    cp -p "${backup}/sent_actions.py" "${target}/sent_actions.py"
+  else
+    rm -f "${target}/sent_actions.py"
+  fi
   if [[ -f "${backup}/mail_actions.py" ]]; then
     cp -p "${backup}/mail_actions.py" "${target}/mail_actions.py"
   else
@@ -66,5 +77,5 @@ if ! systemctl restart "$unit" || ! systemctl is-active --quiet "$unit"; then
   exit 1
 fi
 echo "R Mail code installed; dedicated service active. Rollback copy: ${backup}"
-echo 'SMTP sending remains disabled until SMTP_USER and SMTP_PASSWORD are configured.'
+echo 'SMTP can reuse MAIL_USER and MAIL_PASSWORD when explicit SMTP credentials are absent; test delivery before relying on it.'
 echo 'Calendar reading requires CALDAV_USER and CALDAV_PASSWORD in the private service environment.'
