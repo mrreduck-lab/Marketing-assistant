@@ -7,7 +7,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
 from mcp.server.fastmcp import FastMCP
-from calendar_actions import list_calendars, list_events
+from calendar_actions import list_calendars, list_events, preview_calendar_event, create_calendar_event
 from sent_actions import list_folders, list_sent, read_sent, smtp_status
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
@@ -126,6 +126,28 @@ def list_mail_calendar_events(start_date: str, end_date: str, calendar_id: str =
     No calendar changes occur. Recurring series may appear as rules rather than expanded instances.
     """
     return list_events(start_date, end_date, calendar_id, limit)
+
+
+@mcp.tool()
+def preview_mail_calendar_event(title: str, start: str, end: str, description: str = "",
+                                location: str = "", calendar_id: str = "") -> dict:
+    """Preview event; ISO datetimes MUST include offset, e.g. 2026-09-25T10:00:00+03:00.
+
+    Ask for explicit user confirmation of title, calendar, start, end and description.
+    No event is created.
+    """
+    return preview_calendar_event(title, start, end, description, location, calendar_id)
+
+
+@mcp.tool()
+def create_mail_calendar_event(title: str, start: str, end: str, approval: str,
+                               description: str = "", location: str = "",
+                               calendar_id: str = "") -> dict:
+    """Write a previously previewed event to Mail.ru calendar only after explicit user approval.
+
+    Pass the exact CREATE code from preview; NEVER infer approval or claim success before verification.
+    """
+    return create_calendar_event(title, start, end, approval, description, location, calendar_id)
 
 
 @mcp.tool()
