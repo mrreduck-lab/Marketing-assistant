@@ -88,7 +88,7 @@ def folders(conn) -> list[dict[str, str]]:
         flags = match.group(1).decode("ascii", errors="replace").split()
         raw_name = match.group(2).strip()
         if raw_name.startswith(b'"') and raw_name.endswith(b'"'):
-            raw_name = raw_name[1:-1].replace(b'\\\"', b'"').replace(b'\\\\', b'\\')
+            raw_name = raw_name[1:-1]
         # IMAP LIST names use modified UTF-7 (RFC 3501), not UTF-8.
         name = _decode_imap_utf7(raw_name)
         result.append({"name": name, "wire_name": raw_name.decode("ascii", errors="surrogateescape"),
