@@ -5,6 +5,8 @@ import email.policy
 import imaplib
 import os
 import re
+import time
+from datetime import datetime, timezone
 
 from mail_actions import _body, _fetch, _uid, decode
 
@@ -108,6 +110,44 @@ def read_sent(uid, max_chars=20000):
                 "date": str(msg.get("Date", "")), "message_id": str(msg.get("Message-ID", "")),
                 "body": body[:max_chars], "truncated": len(body) > max_chars,
                 "attachments": attachments, "attachment_contents_read": False}
+    finally:
+        conn.logout()
+
+
+
+def _message_exists(conn, message_id):
+    """Search exact Message-ID in selected Sent folder; no message flags changed."""
+    status, data = conn.uid("search", None, "HEADER", "Message-ID", message_id)
+    if status != "OK":
+        raise RuntimeError("Cannot verify Sent by Message-ID")
+    return bool(data and data[0] and data[0].strip())
+
+
+def save_sent_copy(message, delay_seconds=2):
+    """Persist exact SMTP-accepted MIME message only if Sent lacks its Message-ID.
+
+    Never retry APPEND after a transport error: its outcome may be ambiguous.
+    """
+    message_id = str(message.get("Message-ID", ""))
+    if not re.fullmatch(r"<[^<>\\r\\n\\s]+>", message_id):
+        raise ValueError("Outgoing message requires a valid Message-ID")
+    conn = _connect()
+    try:
+        folder = _select_sent(conn)
+        if _message_exists(conn, message_id):
+            return {"saved": True, "method": "provider", "folder": folder}
+        # Allow a provider that asynchronously files SMTP messages a short grace period.
+        if delay_seconds:
+            time.sleep(delay_seconds)
+            if _message_exists(conn, message_id):
+                return {"saved": True, "method": "provider", "folder": folder}
+        status, _ = conn.append(folder, r"(\\Seen)", imaplib.Time2Internaldate(
+            datetime.now(timezone.utc)), message.as_bytes(policy=email.policy.SMTP))
+        if status != "OK":
+            raise RuntimeError("IMAP APPEND did not confirm success; do not retry blindly")
+        if not _message_exists(conn, message_id):
+            raise RuntimeError("IMAP APPEND acknowledged but Sent lookup did not find the message")
+        return {"saved": True, "method": "imap_append", "folder": folder}
     finally:
         conn.logout()
 
