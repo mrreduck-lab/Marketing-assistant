@@ -29,14 +29,14 @@ trap cleanup EXIT
 mkdir -p "${staging}/mcp_server" "${staging}/tests"
 curl -fsSL "${source}/mcp_server/server.py" -o "${staging}/mcp_server/server.py"
 curl -fsSL "${source}/mcp_server/mail_actions.py" -o "${staging}/mcp_server/mail_actions.py"
-curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py"
+curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py"
 curl -fsSL "${source}/mcp_server/sent_actions.py" -o "${staging}/mcp_server/sent_actions.py"
 curl -fsSL "${source}/tests/test_mail_actions.py" -o "${staging}/tests/test_mail_actions.py"
 curl -fsSL "${source}/tests/test_calendar_actions.py" -o "${staging}/tests/test_calendar_actions.py"
 curl -fsSL "${source}/tests/test_sent_actions.py" -o "${staging}/tests/test_sent_actions.py"
 "$python" -c 'import mcp'
 PYTHONPATH="${staging}/mcp_server" "$python" -m unittest discover -s "${staging}/tests" -q
-"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py"
+"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py"
 
 cp -p "${target}/server.py" "${backup}/server.py"
 if [[ -f "${target}/sent_actions.py" ]]; then
