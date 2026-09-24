@@ -114,14 +114,15 @@ def read_sent(uid, max_chars=20000):
 
 def smtp_status():
     mail_user = os.environ.get("MAIL_USER", "")
-    smtp_user = os.environ.get("SMTP_USER", "")
-    password_present = bool(os.environ.get("SMTP_PASSWORD"))
+    smtp_user = os.environ.get("SMTP_USER") or mail_user
+    password_present = bool(os.environ.get("SMTP_PASSWORD") or os.environ.get("MAIL_PASSWORD"))
+    matches = bool(mail_user and smtp_user and mail_user.casefold() == smtp_user.casefold())
     return {"smtp_user_configured": bool(smtp_user),
             "smtp_password_configured": password_present,
-            "smtp_user_matches_mail_user": bool(mail_user and smtp_user and
-                                                mail_user.casefold() == smtp_user.casefold()),
+            "credential_source": "explicit_smtp" if os.environ.get("SMTP_PASSWORD") else
+                                 "existing_mail_app_password" if os.environ.get("MAIL_PASSWORD") else "missing",
+            "smtp_user_matches_mail_user": matches,
             "smtp_host": os.environ.get("SMTP_HOST", "smtp.mail.ru"),
             "smtp_port": os.environ.get("SMTP_PORT", "465"),
-            "ready_to_attempt_send": bool(mail_user and smtp_user and password_present and
-                                          mail_user.casefold() == smtp_user.casefold()),
+            "ready_to_attempt_send": bool(matches and password_present),
             "note": "Configuration check only: SMTP login and delivery were not tested."}
