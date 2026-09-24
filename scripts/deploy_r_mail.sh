@@ -2,7 +2,7 @@
 # Run on the private mail host as root. No credentials are printed or copied.
 set -Eeuo pipefail
 
-readonly revision='e6659a90e6349bedec0d8a72c75a404af69d228d'
+readonly revision='e945a68f51b4e51f1dac03ac2be3680295c4bfc0'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
 readonly python="${base}/.venv-mcp/bin/python3"
@@ -78,4 +78,4 @@ if ! systemctl restart "$unit" || ! systemctl is-active --quiet "$unit"; then
 fi
 echo "R Mail code installed; dedicated service active. Rollback copy: ${backup}"
 echo 'SMTP can reuse MAIL_USER and MAIL_PASSWORD when explicit SMTP credentials are absent; test delivery before relying on it.'
-echo 'Calendar reading requires CALDAV_USER and CALDAV_PASSWORD in the private service environment.'
+echo 'Calendar can reuse MAIL_USER and MAIL_PASSWORD if CALDAV credentials are absent; create an approved test event to verify provider access.'
