@@ -255,8 +255,8 @@ def send_reply(draft_id, approval):
         raise ValueError("Invalid draft ID")
     if approval != "SEND " + draft_id:
         raise ValueError("Explicit approval for this draft is required: SEND <draft_id>")
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_password = os.environ.get("SMTP_PASSWORD")
+    smtp_user = os.environ.get("SMTP_USER") or os.environ.get("MAIL_USER")
+    smtp_password = os.environ.get("SMTP_PASSWORD") or os.environ.get("MAIL_PASSWORD")
     if not smtp_user or not smtp_password:
         raise RuntimeError("SMTP_USER and SMTP_PASSWORD are not configured")
     if smtp_user.casefold() != os.environ.get("MAIL_USER", "").casefold():
@@ -358,7 +358,7 @@ def set_auto_rule(rule_id, enabled, approval):
         raise ValueError("Explicit approval for this rule is required: " + expected)
     floor = 0
     if enabled:
-        if not os.environ.get("SMTP_USER") or not os.environ.get("SMTP_PASSWORD"):
+        if not (os.environ.get("SMTP_USER") or os.environ.get("MAIL_USER")) or not (os.environ.get("SMTP_PASSWORD") or os.environ.get("MAIL_PASSWORD")):
             raise RuntimeError("SMTP is not configured")
         with inbox() as conn:
             status, data = conn.uid("search", None, "ALL")
