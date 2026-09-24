@@ -35,7 +35,7 @@ class SMTPConfigurationTests(unittest.TestCase):
         msg = EmailMessage()
         msg["Message-ID"] = "<unique@example.com>"
         conn = MagicMock()
-        conn.list.return_value = ("OK", [b'(\\\\Sent) "/" "Sent"'])
+        conn.list.return_value = ("OK", [b'(\\Sent) "/" "Sent"'])
         conn.select.return_value = ("OK", [])
         conn.uid.return_value = ("OK", [b"42"])
         with patch("sent_actions._connect", return_value=conn):
@@ -48,7 +48,7 @@ class SMTPConfigurationTests(unittest.TestCase):
         msg["Message-ID"] = "<unique@example.com>"
         msg.set_content("Hello")
         conn = MagicMock()
-        conn.list.return_value = ("OK", [b'(\\\\Sent) "/" "Sent"'])
+        conn.list.return_value = ("OK", [b'(\\Sent) "/" "Sent"'])
         conn.select.return_value = ("OK", [])
         conn.uid.side_effect = [("OK", [b""]), ("OK", [b"42"])]
         conn.append.return_value = ("OK", [b"APPENDUID"])
