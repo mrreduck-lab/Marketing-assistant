@@ -14,6 +14,8 @@ import sqlite3
 import ssl
 import time
 import uuid
+
+from mailbox_folders import mailbox, resolve_folder, has_message_id, append_message
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.header import decode_header
@@ -226,7 +228,25 @@ def read_thread(uid, scan_limit=200, max_messages=10):
             "scan_limit": scan_limit, "truncated_thread": len(matches) > max_messages}
 
 
+def _message_for_draft(sender, recipient, subject, body, reply_id, references, message_id):
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg["Subject"] = subject
+    msg["Message-ID"] = message_id
+    if reply_id:
+        msg["In-Reply-To"] = reply_id
+        msg["References"] = (references + " " + reply_id).strip()
+    msg.set_content(body)
+    return msg
+
+
 def prepare_reply(uid, body):
+    """Persist a real IMAP Draft before reporting success.
+
+    SQLite is the private approval ledger; the mail provider is the source of truth
+    for visible Drafts and Sent. A failed APPEND never returns a draft ID.
+    """
     if not isinstance(body, str) or not body.strip() or len(body) > MAX_REPLY_CHARS:
         raise ValueError("Reply must have 1-20000 characters")
     with inbox() as conn:
@@ -241,13 +261,27 @@ def prepare_reply(uid, body):
     reply_id = str(original.get("Message-ID", ""))
     references = str(original.get("References", ""))
     draft_id = uuid.uuid4().hex[:12]
+    from_user = os.environ.get("MAIL_USER", "")
+    message_id = make_msgid(domain=from_user.rsplit("@", 1)[-1])
+    draft = _message_for_draft(from_user, addresses[0], subject, body, reply_id, references, message_id)
+    # Verify the mailbox really contains the draft before answering ChatGPT.
+    with mailbox() as conn:
+        append_message(conn, "drafts", draft, "\\Draft")
+        if not has_message_id(conn, "drafts", message_id):
+            raise RuntimeError("Draft APPEND was not verified in provider Drafts")
     with database() as db:
         db.execute("INSERT INTO drafts(id,uid,recipient,subject,body,reply_id,references_header,created) VALUES(?,?,?,?,?,?,?,?)",
                    (draft_id, _uid(uid), addresses[0], subject[:500], body, reply_id[:500], references[:1000], int(time.time())))
-        _event(db, "draft_prepared", _uid(uid), addresses[0])
+        db.execute("""CREATE TABLE IF NOT EXISTS mail_delivery (
+            draft_id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+            smtp_accepted INTEGER NOT NULL DEFAULT 0,
+            sent_verified INTEGER NOT NULL DEFAULT 0)""")
+        db.execute("INSERT INTO mail_delivery(draft_id,message_id) VALUES(?,?)", (draft_id, message_id))
+        _event(db, "draft_saved_imap", _uid(uid), addresses[0])
     return {"draft_id": draft_id, "to": addresses[0], "subject": subject,
-            "body": body, "source_uid": _uid(uid),
-            "next_step": "User must explicitly approve this exact recipient, subject and body before send_reply."}
+            "body": body, "source_uid": _uid(uid), "message_id": message_id,
+            "mailbox_draft_verified": True,
+            "next_step": "Show full preview; obtain explicit user approval before send_mail_reply."}
 
 
 def send_reply(draft_id, approval):
@@ -255,42 +289,59 @@ def send_reply(draft_id, approval):
         raise ValueError("Invalid draft ID")
     if approval != "SEND " + draft_id:
         raise ValueError("Explicit approval for this draft is required: SEND <draft_id>")
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_password = os.environ.get("SMTP_PASSWORD")
+    smtp_user, smtp_password = os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASSWORD")
     if not smtp_user or not smtp_password:
         raise RuntimeError("SMTP_USER and SMTP_PASSWORD are not configured")
     if smtp_user.casefold() != os.environ.get("MAIL_USER", "").casefold():
-        raise RuntimeError("SMTP_USER must match the authenticated mailbox")
+        raise RuntimeError("SMTP_USER must match authenticated mailbox")
     with database() as db:
-        row = db.execute("SELECT uid,recipient,subject,body,reply_id,references_header,created,state FROM drafts WHERE id=?", (draft_id,)).fetchone()
+        db.execute("""CREATE TABLE IF NOT EXISTS mail_delivery (
+            draft_id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+            smtp_accepted INTEGER NOT NULL DEFAULT 0,
+            sent_verified INTEGER NOT NULL DEFAULT 0)""")
+        row = db.execute("""SELECT d.uid,d.recipient,d.subject,d.body,d.reply_id,
+            d.references_header,d.created,d.state,m.message_id
+            FROM drafts d JOIN mail_delivery m ON m.draft_id=d.id WHERE d.id=?""", (draft_id,)).fetchone()
         if row is None or row[7] != "pending" or row[6] < time.time() - DRAFT_TTL:
             raise ValueError("Draft missing, expired or already sent/attempted")
-        uid, recipient, subject, body, reply_id, references, _, _ = row
-        # Commit before SMTP: a timeout is ambiguous and must never trigger automatic retry.
+        uid, recipient, subject, body, reply_id, references, _, _, message_id = row
         db.execute("UPDATE drafts SET state='sending' WHERE id=?", (draft_id,))
         _event(db, "send_attempt", uid, recipient)
-    msg = EmailMessage()
-    msg["From"] = smtp_user
-    msg["To"] = recipient
-    msg["Subject"] = subject
-    msg["Message-ID"] = make_msgid(domain=smtp_user.rsplit("@", 1)[-1])
-    if reply_id:
-        msg["In-Reply-To"] = reply_id
-        msg["References"] = (references + " " + reply_id).strip()
-    msg.set_content(body)
+    msg = _message_for_draft(smtp_user, recipient, subject, body, reply_id, references, message_id)
+    # If a previous SMTP attempt timed out, never re-send automatically.
     try:
         with smtplib.SMTP_SSL(os.environ.get("SMTP_HOST", "smtp.mail.ru"),
-                              int(os.environ.get("SMTP_PORT", "465")), context=ssl.create_default_context(), timeout=30) as smtp:
+                              int(os.environ.get("SMTP_PORT", "465")),
+                              context=ssl.create_default_context(), timeout=30) as smtp:
             smtp.login(smtp_user, smtp_password)
             smtp.send_message(msg, from_addr=smtp_user, to_addrs=[recipient])
     except Exception:
         with database() as db:
-            _event(db, "send_uncertain", uid, recipient, note="Check Sent folder; no automatic retry")
-        raise RuntimeError("SMTP outcome uncertain. Check Sent folder before attempting a new draft") from None
+            _event(db, "send_uncertain", uid, recipient, note="Check Sent; never auto-retry")
+        raise RuntimeError("SMTP outcome uncertain; inspect Sent before any retry") from None
+    # SMTP accepted the message. A later IMAP error must NEVER cause a second SMTP send.
     with database() as db:
+        db.execute("UPDATE mail_delivery SET smtp_accepted=1 WHERE draft_id=?", (draft_id,))
         db.execute("UPDATE drafts SET state='sent',body='' WHERE id=?", (draft_id,))
-        _event(db, "sent", uid, recipient)
-    return {"status": "sent", "to": recipient, "subject": subject, "message_id": msg["Message-ID"]}
+        _event(db, "smtp_accepted", uid, recipient)
+    try:
+        with mailbox() as conn:
+            if not has_message_id(conn, "sent", message_id):
+                append_message(conn, "sent", msg, "\\Seen")
+            verified = has_message_id(conn, "sent", message_id)
+    except Exception:
+        verified = False
+    with database() as db:
+        if verified:
+            db.execute("UPDATE mail_delivery SET sent_verified=1 WHERE draft_id=?", (draft_id,))
+            _event(db, "sent_verified_imap", uid, recipient)
+        else:
+            _event(db, "sent_unverified_imap", uid, recipient,
+                   note="SMTP accepted; manual Sent reconciliation required, no resend")
+    return {"status": "sent" if verified else "smtp_accepted_sent_unverified",
+            "smtp_accepted": True, "sent_folder_verified": verified, "to": recipient,
+            "subject": subject, "message_id": message_id,
+            "note": "" if verified else "Do not retry SMTP; reconcile Sent by Message-ID."}
 
 
 def log_work(uid, action, category="", note=""):
