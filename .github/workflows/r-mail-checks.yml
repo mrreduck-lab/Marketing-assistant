@@ -26,3 +26,4 @@ jobs:
         run: |
           python -m compileall -q mcp_server tests
           python -m unittest discover -s tests -v
+          bash -n scripts/deploy_r_mail_v2.sh
