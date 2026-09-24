@@ -1,6 +1,11 @@
 """Read-only Mail Calendar CalDAV access using the standard library."""
 
 import base64
+import hashlib
+import hmac
+import json
+import secrets
+import uuid
 import os
 import re
 import urllib.error
@@ -19,8 +24,8 @@ MAX_RESPONSE = 2_000_000
 
 
 def _credentials():
-    user = os.environ.get("CALDAV_USER")
-    password = os.environ.get("CALDAV_PASSWORD")
+    user = os.environ.get("CALDAV_USER") or os.environ.get("MAIL_USER")
+    password = os.environ.get("CALDAV_PASSWORD") or os.environ.get("MAIL_PASSWORD")
     if not user or not password:
         raise RuntimeError("Calendar credentials are not configured (CALDAV_USER/CALDAV_PASSWORD)")
     return user, password
@@ -34,20 +39,22 @@ def _url(href, base=None):
     return url
 
 
-def _request(method, url, body=b"", depth=None):
+def _request(method, url, body=b"", depth=None, content_type="application/xml; charset=utf-8", extra_headers=None):
     user, password = _credentials()
     headers = {
         "Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode(),
-        "Content-Type": "application/xml; charset=utf-8",
+        "Content-Type": content_type,
         "Accept": "application/xml",
     }
     if depth is not None:
         headers["Depth"] = str(depth)
+    if extra_headers:
+        headers.update(extra_headers)
     for _ in range(4):
         req = urllib.request.Request(_url(url), data=body, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=20) as response:
-                if response.status not in (200, 207):
+                if response.status not in (200, 201, 204, 207):
                     raise RuntimeError(f"CalDAV returned HTTP {response.status}")
                 data = response.read(MAX_RESPONSE + 1)
                 if len(data) > MAX_RESPONSE:
