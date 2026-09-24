@@ -10,10 +10,10 @@ import email.policy
 import imaplib
 import os
 import re
+import time
 from contextlib import contextmanager
 from email.header import decode_header
 from email.message import EmailMessage
-from email.utils import getaddresses
 from typing import Iterator
 
 MAX_FETCH = 2_000_000
@@ -200,6 +200,6 @@ def append_message(conn, purpose: str, msg: EmailMessage, flags: str = "") -> No
     if len(raw) > MAX_FETCH:
         raise ValueError("Message exceeds safe APPEND limit")
     status, _ = conn.append('"' + folder.replace('\\', '\\\\').replace('"', '\\"') + '"',
-                            flags or None, imaplib.Time2Internaldate(__import__("time").time()), raw)
+                            flags or None, imaplib.Time2Internaldate(time.time()), raw)
     if status != "OK":
         raise RuntimeError("IMAP APPEND failed: " + purpose)
