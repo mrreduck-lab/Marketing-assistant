@@ -1,11 +1,9 @@
-"""Read-only Mail Calendar CalDAV access using the standard library."""
+"""Mail.ru Calendar CalDAV access using the standard library."""
 
 import base64
 import hashlib
 import hmac
 import json
-import secrets
-import uuid
 import os
 import re
 import urllib.error
@@ -51,7 +49,7 @@ def _request(method, url, body=b"", depth=None, content_type="application/xml; c
     if extra_headers:
         headers.update(extra_headers)
     for _ in range(4):
-        req = urllib.request.Request(_url(url), data=body, method=method, headers=headers)
+        req = urllib.request.Request(_url(url), data=body if method in ("PROPFIND", "REPORT", "PUT") else None, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=20) as response:
                 if response.status not in (200, 201, 204, 207):
@@ -66,7 +64,8 @@ def _request(method, url, body=b"", depth=None, content_type="application/xml; c
                 continue
             if error.code in (401, 403):
                 raise RuntimeError("Calendar credentials or access denied") from None
-            raise RuntimeError(f"CalDAV returned HTTP {error.code}") from None
+            safe_path = urllib.parse.urlsplit(url).path
+            raise RuntimeError(f"CalDAV {method} HTTP {error.code} at {safe_path[:160]}") from None
     raise RuntimeError("Too many CalDAV redirects")
 
 
@@ -239,7 +238,6 @@ def _calendar_event_payload(title, start, end, description="", location="", cale
         raise ValueError("Event title must be 1-200 characters")
     if len(description) > 4000 or len(location) > 300:
         raise ValueError("Event description or location too long")
-    zone = ZoneInfo(os.environ.get("CALDAV_TIMEZONE", "Europe/Moscow"))
     try:
         start_dt = datetime.fromisoformat(start)
         end_dt = datetime.fromisoformat(end)
@@ -313,3 +311,33 @@ def create_calendar_event(title, start, end, approval, description="", location=
     return {"status": "created", "uid": event_uid, "calendar": payload["calendar_name"],
             "start": start, "end": end, "title": title}
 
+
+
+def diagnose_calendar():
+    """Read-only stage-by-stage CalDAV check, without disclosing credentials or events."""
+    result = {"status": "checking", "host": HOST, "checks": []}
+    origin = _url(os.environ.get("CALDAV_URL", f"https://{HOST}/"))
+    steps = [
+        ("principal", lambda: _propfind(origin, ["current-user-principal"])),
+        ("calendar_discovery", _calendars),
+    ]
+    for name, action in steps:
+        try:
+            value = action()
+            result["checks"].append({"stage": name, "status": "ok",
+                                     "calendar_count": len(value) if name == "calendar_discovery" else None})
+        except Exception as error:
+            result["checks"].append({"stage": name, "status": "failed",
+                                     "error": str(error)[:220]})
+            result["status"] = "failed"
+            return result
+    try:
+        today = datetime.now(ZoneInfo(os.environ.get("CALDAV_TIMEZONE", "Europe/Moscow"))).date()
+        data = list_events(today.isoformat(), (today + timedelta(days=1)).isoformat(), limit=1)
+        result["checks"].append({"stage": "event_read", "status": "ok",
+                                 "event_count_at_least": len(data["events"])})
+        result["status"] = "ok"
+    except Exception as error:
+        result["checks"].append({"stage": "event_read", "status": "failed", "error": str(error)[:220]})
+        result["status"] = "failed"
+    return result
