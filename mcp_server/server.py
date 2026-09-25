@@ -7,7 +7,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
 from mcp.server.fastmcp import FastMCP
-from calendar_actions import list_calendars, list_events, preview_calendar_event, create_calendar_event
+from calendar_actions import list_calendars, list_events, preview_calendar_event, create_calendar_event, diagnose_calendar
 from sent_actions import list_folders, list_sent, read_sent, smtp_status
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
@@ -126,6 +126,12 @@ def list_mail_calendar_events(start_date: str, end_date: str, calendar_id: str =
     No calendar changes occur. Recurring series may appear as rules rather than expanded instances.
     """
     return list_events(start_date, end_date, calendar_id, limit)
+
+
+@mcp.tool()
+def diagnose_mail_calendar() -> dict:
+    """Read-only Mail.ru CalDAV connection diagnostic. No event content or passwords returned."""
+    return diagnose_calendar()
 
 
 @mcp.tool()
