@@ -2,7 +2,7 @@
 # Run on the private mail host as root. No credentials are printed or copied.
 set -Eeuo pipefail
 
-readonly revision='4ab67b83bf767dfe192e703358c66a27b049cf7b'
+readonly revision='4bda5e04f5677b74fa9bd14e9745ac8223efffa5'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
 readonly python="${base}/.venv-mcp/bin/python3"
@@ -28,12 +28,14 @@ cleanup() { rm -rf "$staging"; }
 trap cleanup EXIT
 mkdir -p "${staging}/mcp_server" "${staging}/tests"
 curl -fsSL "${source}/mcp_server/server.py" -o "${staging}/mcp_server/server.py"
+curl -fsSL "${source}/mcp_server/search_actions.py" -o "${staging}/mcp_server/search_actions.py"
 curl -fsSL "${source}/mcp_server/draft_actions.py" -o "${staging}/mcp_server/draft_actions.py"
 curl -fsSL "${source}/mcp_server/attachment_actions.py" -o "${staging}/mcp_server/attachment_actions.py"
 curl -fsSL "${source}/mcp_server/mail_actions.py" -o "${staging}/mcp_server/mail_actions.py"
 curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py"
 curl -fsSL "${source}/mcp_server/sent_actions.py" -o "${staging}/mcp_server/sent_actions.py"
 curl -fsSL "${source}/tests/test_mail_actions.py" -o "${staging}/tests/test_mail_actions.py"
+curl -fsSL "${source}/tests/test_search_actions.py" -o "${staging}/tests/test_search_actions.py"
 curl -fsSL "${source}/tests/test_draft_actions.py" -o "${staging}/tests/test_draft_actions.py"
 curl -fsSL "${source}/tests/test_attachment_actions.py" -o "${staging}/tests/test_attachment_actions.py"
 curl -fsSL "${source}/tests/test_calendar_actions.py" -o "${staging}/tests/test_calendar_actions.py"
@@ -41,9 +43,10 @@ curl -fsSL "${source}/tests/test_sent_actions.py" -o "${staging}/tests/test_sent
 "$python" -m pip install "pypdf>=5,<7"
 "$python" -c 'import mcp'
 PYTHONPATH="${staging}/mcp_server" "$python" -m unittest discover -s "${staging}/tests" -q
-"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py" "${staging}/mcp_server/attachment_actions.py" "${staging}/mcp_server/draft_actions.py"
+"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py" "${staging}/mcp_server/attachment_actions.py" "${staging}/mcp_server/draft_actions.py" "${staging}/mcp_server/search_actions.py"
 
 cp -p "${target}/server.py" "${backup}/server.py"
+if [[ -f "${target}/search_actions.py" ]]; then cp -p "${target}/search_actions.py" "${backup}/search_actions.py"; fi
 if [[ -f "${target}/draft_actions.py" ]]; then cp -p "${target}/draft_actions.py" "${backup}/draft_actions.py"; fi
 if [[ -f "${target}/attachment_actions.py" ]]; then cp -p "${target}/attachment_actions.py" "${backup}/attachment_actions.py"; fi
 if [[ -f "${target}/sent_actions.py" ]]; then
@@ -56,6 +59,7 @@ if [[ -f "${target}/calendar_actions.py" ]]; then
   cp -p "${target}/calendar_actions.py" "${backup}/calendar_actions.py"
 fi
 install -m 0644 "${staging}/mcp_server/server.py" "${target}/server.py"
+install -m 0644 "${staging}/mcp_server/search_actions.py" "${target}/search_actions.py"
 install -m 0644 "${staging}/mcp_server/draft_actions.py" "${target}/draft_actions.py"
 install -m 0644 "${staging}/mcp_server/attachment_actions.py" "${target}/attachment_actions.py"
 install -m 0644 "${staging}/mcp_server/sent_actions.py" "${target}/sent_actions.py"
@@ -66,6 +70,7 @@ service_user=${service_user:-root}
 install -d -o "$service_user" -m 0700 /var/lib/raschini-mail-mcp
 if ! systemctl restart "$unit" || ! systemctl is-active --quiet "$unit"; then
   cp -p "${backup}/server.py" "${target}/server.py"
+  if [[ -f "${backup}/search_actions.py" ]]; then cp -p "${backup}/search_actions.py" "${target}/search_actions.py"; else rm -f "${target}/search_actions.py"; fi
   if [[ -f "${backup}/draft_actions.py" ]]; then cp -p "${backup}/draft_actions.py" "${target}/draft_actions.py"; else rm -f "${target}/draft_actions.py"; fi
   if [[ -f "${backup}/attachment_actions.py" ]]; then cp -p "${backup}/attachment_actions.py" "${target}/attachment_actions.py"; else rm -f "${target}/attachment_actions.py"; fi
   if [[ -f "${backup}/sent_actions.py" ]]; then
