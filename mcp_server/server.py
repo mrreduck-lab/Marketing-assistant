@@ -3,6 +3,7 @@
 import email
 import imaplib
 import os
+from datetime import datetime
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
@@ -100,18 +101,92 @@ def list_recent_mail(limit: int = 20) -> list[dict[str, str]]:
     return _headers(limit)
 
 
+def _imap_date(value: str, field: str) -> str:
+    if not value:
+        return ""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%d-%b-%Y")
+    except ValueError:
+        raise ValueError(f"{field} must be YYYY-MM-DD") from None
+
+
+def _search_headers(criteria: list[str], limit: int) -> list[dict[str, str]]:
+    connection = _mail()
+    try:
+        # SEARCH is executed by Mail.ru; R Mail fetches headers only for matched UIDs.
+        status, data = connection.uid("search", None, *criteria)
+        if status != "OK":
+            raise RuntimeError("Cannot search INBOX")
+        uids = (data[0].split() if data and data[0] else [])[-limit:]
+        messages = []
+        for uid in reversed(uids):
+            status, parts = connection.uid(
+                "fetch", uid,
+                "(BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])",
+            )
+            if status != "OK":
+                continue
+            raw = next((p[1] for p in parts or [] if isinstance(p, tuple) and isinstance(p[1], bytes)), None)
+            if raw is None:
+                continue
+            message = email.message_from_bytes(raw)
+            messages.append({
+                "uid": uid.decode("ascii"), "from": _decode(message.get("From")),
+                "to": _decode(message.get("To")), "subject": _decode(message.get("Subject")),
+                "date": message.get("Date", ""), "message_id": message.get("Message-ID", ""),
+            })
+        return messages
+    finally:
+        try:
+            connection.logout()
+        except Exception:
+            pass
+
+
+@mcp.tool()
+def search_mail(sender: str = "", recipient: str = "", subject: str = "",
+                since: str = "", before: str = "", text: str = "",
+                limit: int = 20) -> list[dict[str, str]]:
+    """Fast server-side IMAP search in INBOX.
+
+    Mail.ru performs the search. Dates are YYYY-MM-DD; before is exclusive.
+    Only matched message headers are fetched. text uses IMAP TEXT and may be
+    slower than sender/recipient/subject/date search.
+    """
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be from 1 to 50")
+    values = {"sender": sender, "recipient": recipient, "subject": subject, "text": text}
+    for name, value in values.items():
+        if len(value) > 200 or "\r" in value or "\n" in value:
+            raise ValueError(f"{name} is too long or invalid")
+    criteria = []
+    if sender.strip():
+        criteria += ["FROM", sender.strip()]
+    if recipient.strip():
+        criteria += ["TO", recipient.strip()]
+    if subject.strip():
+        criteria += ["SUBJECT", subject.strip()]
+    if since:
+        criteria += ["SINCE", _imap_date(since, "since")]
+    if before:
+        criteria += ["BEFORE", _imap_date(before, "before")]
+    if text.strip():
+        criteria += ["TEXT", text.strip()]
+    if not criteria:
+        raise ValueError("Provide at least one search condition")
+    return _search_headers(criteria, limit)
+
+
 @mcp.tool()
 def find_mail(query: str, scan_limit: int = 100) -> list[dict[str, str]]:
-    """Find words in sender and subject of recent INBOX headers, without reading bodies."""
-    needle = query.strip().casefold()
-    if not needle or len(needle) > 120:
-        raise ValueError("query must be 1-120 characters")
+    """Compatibility search: ask Mail.ru to search sender OR subject, without scanning messages."""
+    needle = query.strip()
+    if not needle or len(needle) > 120 or "\r" in needle or "\n" in needle:
+        raise ValueError("query must be 1-120 valid characters")
     if not 1 <= scan_limit <= 200:
         raise ValueError("scan_limit must be from 1 to 200")
-    return [
-        item for item in _headers(scan_limit)
-        if needle in item["from"].casefold() or needle in item["subject"].casefold()
-    ]
+    # IMAP OR is evaluated by the server. Cap returned headers at 50.
+    return _search_headers(["OR", "FROM", needle, "SUBJECT", needle], min(scan_limit, 50))
 
 
 @mcp.tool()
