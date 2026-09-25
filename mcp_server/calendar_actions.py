@@ -101,11 +101,23 @@ def _nested_href(props, key):
 
 
 def _calendars():
-    origin = _url(os.environ.get("CALDAV_URL", f"https://{HOST}/"))
+    configured = os.environ.get("CALDAV_URL", "").strip()
+    if configured and configured.rstrip("/") != f"https://{HOST}":
+        direct = _url(configured)
+        # Mail.ru publishes the actual per-calendar CalDAV URL in its calendar UI.
+        # A direct collection URL does not require principal/home-set discovery.
+        props = _propfind(direct, ["resourcetype", "displayname"])
+        for href, values in props:
+            kind = values.get(f"{{{DAV}}}resourcetype")
+            if kind is not None and kind.find("c:calendar", NS) is not None:
+                name = values.get(f"{{{DAV}}}displayname")
+                return [{"id": _url(href, direct), "name": (name.text or "").strip() if name is not None else ""}]
+        raise RuntimeError("CALDAV_URL is not a calendar collection; copy the CalDAV link from Mail.ru calendar settings")
+    origin = _url(configured or f"https://{HOST}/")
     try:
         principal = _propfind(origin, ["current-user-principal"])
     except RuntimeError as error:
-        if origin != f"https://{HOST}/" or "HTTP 404" not in str(error):
+        if origin != f"https://{HOST}/" or not any(code in str(error) for code in ("HTTP 404", "HTTP 400")):
             raise
         origin = _url("/.well-known/caldav")
         principal = _propfind(origin, ["current-user-principal"])
@@ -317,7 +329,7 @@ def diagnose_calendar():
     """Read-only stage-by-stage CalDAV check, without disclosing credentials or events."""
     result = {"status": "checking", "host": HOST, "checks": []}
     origin = _url(os.environ.get("CALDAV_URL", f"https://{HOST}/"))
-    steps = [
+    steps = [("calendar_discovery", _calendars)] if os.environ.get("CALDAV_URL", "").strip().rstrip("/") != f"https://{HOST}" and os.environ.get("CALDAV_URL", "").strip() else [
         ("principal", lambda: _propfind(origin, ["current-user-principal"])),
         ("calendar_discovery", _calendars),
     ]
