@@ -78,7 +78,7 @@ def _office(data, ext):
             names = [n for n in archive.namelist() if n == "word/document.xml"]
         else:
             names = [n for n in archive.namelist() if n == "xl/sharedStrings.xml" or
-                     re.fullmatch(r"xl/worksheets/sheet[0-9]+\\.xml", n)]
+                     re.fullmatch(r"xl/worksheets/sheet[0-9]+\.xml", n)]
         if not names:
             raise ValueError("No readable document text")
         for name in names[:30]:
