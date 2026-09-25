@@ -27,28 +27,6 @@ MAX_REPLY_CHARS = 20_000
 MAX_HTML_CHARS = 250_000
 DRAFT_TTL = 24 * 3600
 
-SIGNATURE_MARKER = "Михаил Куприн"
-SIGNATURE_HTML = """<div data-rmail-signature="raschini"><p style="line-height:1.38;font-family:Arial,sans-serif;font-size:11pt">С уважением,<br>Михаил Куприн<br>Директор по маркетингу<br>+7 916 701-75-23<br><a href="mailto:marketing@raschini.com">marketing@raschini.com</a></p><p><a href="https://raschini.com"><img src="https://raschini.com/wp-content/themes/raschini_new/img/header/logo_white.png" width="162" alt="RASCHINI"></a></p></div>"""
-SIGNATURE_TEXT = """С уважением,
-Михаил Куприн
-Директор по маркетингу
-+7 916 701-75-23
-marketing@raschini.com
-https://raschini.com"""
-
-
-def _set_signed_content(msg, body):
-    """Add the configured Raschini signature once, as text + HTML alternatives."""
-    enabled = os.environ.get("MAIL_SIGNATURE_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
-    if not enabled or SIGNATURE_MARKER.casefold() in body.casefold():
-        msg.set_content(body)
-        return False
-    plain = body.rstrip() + "\\n\\n" + SIGNATURE_TEXT + "\\n"
-    html_body = "<div>" + html.escape(body).replace("\\n", "<br>") + "</div><br>" + SIGNATURE_HTML
-    msg.set_content(plain)
-    msg.add_alternative(html_body, subtype="html")
-    return True
-
 
 class _PlainHTML(HTMLParser):
     def __init__(self):
@@ -299,7 +277,7 @@ def send_reply(draft_id, approval):
     if reply_id:
         msg["In-Reply-To"] = reply_id
         msg["References"] = (references + " " + reply_id).strip()
-    signature_added = _set_signed_content(msg, body)
+    msg.set_content(body)
     try:
         with smtplib.SMTP_SSL(os.environ.get("SMTP_HOST", "smtp.mail.ru"),
                               int(os.environ.get("SMTP_PORT", "465")), context=ssl.create_default_context(), timeout=30) as smtp:
@@ -322,10 +300,9 @@ def send_reply(draft_id, approval):
                    note="SMTP accepted; check Sent manually by Message-ID; never resend")
         return {"status": "sent", "sent_copy": "unverified", "to": recipient,
                 "subject": subject, "message_id": msg["Message-ID"],
-                "warning": "SMTP accepted the message but Sent filing was not verified. Do not resend.",
-                "signature_added": signature_added}
+                "warning": "SMTP accepted the message but Sent filing was not verified. Do not resend."}
     return {"status": "sent", "sent_copy": filing["method"], "to": recipient,
-            "subject": subject, "message_id": msg["Message-ID"], "signature_added": signature_added}
+            "subject": subject, "message_id": msg["Message-ID"]}
 
 
 def log_work(uid, action, category="", note=""):
