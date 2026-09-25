@@ -95,6 +95,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(("fetch", ("9", "(UID BODY.PEEK[])")), FakeIMAP.commands)
         self.assertEqual(mail.work_report()["counts"]["read"], 1)
 
+    def test_signature_is_added_as_html_and_plain_text(self):
+        message = EmailMessage()
+        added = mail._set_signed_content(message, "Добрый день. Спасибо за письмо.")
+        self.assertTrue(added)
+        self.assertTrue(message.is_multipart())
+        self.assertIn("Михаил Куприн", message.get_body(preferencelist=("plain",)).get_content())
+        html_part = message.get_body(preferencelist=("html",))
+        self.assertIn("logo_white.png", html_part.get_content())
+        self.assertIn("Михаил Куприн", html_part.get_content())
+
+    def test_signature_is_not_duplicated_when_body_has_it(self):
+        message = EmailMessage()
+        added = mail._set_signed_content(message, "Ответ\\n\\nС уважением,\\nМихаил Куприн")
+        self.assertFalse(added)
+        self.assertEqual(message.get_content_type(), "text/plain")
+
     def test_exact_approval_and_no_duplicate_send(self):
         draft = mail.prepare_reply("9", "Thank you. I will review this.")
         with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP), patch("sent_actions.save_sent_copy", return_value={"method": "imap_append"}):
