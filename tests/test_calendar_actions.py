@@ -2,7 +2,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_server"))
 import calendar_actions as calendar
@@ -95,6 +95,26 @@ class CalendarTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 calendar.preview_calendar_event('Test', '2026-09-25T10:00:00',
                                                 '2026-09-25T11:00:00')
+
+
+    def test_diagnostic_identifies_failed_stage_without_event_content(self):
+        with patch.object(calendar, '_propfind', side_effect=RuntimeError('CalDAV PROPFIND HTTP 400 at /')):
+            result = calendar.diagnose_calendar()
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['checks'][0]['stage'], 'principal')
+        self.assertIn('HTTP 400', result['checks'][0]['error'])
+
+    def test_get_has_no_empty_request_body(self):
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, size): return b'ok'
+        with patch.dict(os.environ, {'CALDAV_USER': 'user@example.com',
+                                     'CALDAV_PASSWORD': 'test'}, clear=True), \
+             patch.object(calendar.urllib.request, 'urlopen', return_value=Response()) as call:
+            calendar._request('GET', 'https://calendar.mail.ru/')
+            self.assertIsNone(call.call_args.args[0].data)
 
     def test_reject_external_url_and_missing_calendar_secret(self):
         with self.assertRaises(ValueError):
