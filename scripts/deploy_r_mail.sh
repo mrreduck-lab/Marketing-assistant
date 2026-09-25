@@ -2,7 +2,7 @@
 # Run on the private mail host as root. No credentials are printed or copied.
 set -Eeuo pipefail
 
-readonly revision='fb296544bd7c8f69a418051f6e3803fc428ab131'
+readonly revision='f1ea15ac5437e1bfb0cd7be672725e22e3fb14c4'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
 readonly python="${base}/.venv-mcp/bin/python3"
@@ -28,20 +28,23 @@ cleanup() { rm -rf "$staging"; }
 trap cleanup EXIT
 mkdir -p "${staging}/mcp_server" "${staging}/tests"
 curl -fsSL "${source}/mcp_server/server.py" -o "${staging}/mcp_server/server.py"
+curl -fsSL "${source}/mcp_server/draft_actions.py" -o "${staging}/mcp_server/draft_actions.py"
 curl -fsSL "${source}/mcp_server/attachment_actions.py" -o "${staging}/mcp_server/attachment_actions.py"
 curl -fsSL "${source}/mcp_server/mail_actions.py" -o "${staging}/mcp_server/mail_actions.py"
 curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py"
 curl -fsSL "${source}/mcp_server/sent_actions.py" -o "${staging}/mcp_server/sent_actions.py"
 curl -fsSL "${source}/tests/test_mail_actions.py" -o "${staging}/tests/test_mail_actions.py"
+curl -fsSL "${source}/tests/test_draft_actions.py" -o "${staging}/tests/test_draft_actions.py"
 curl -fsSL "${source}/tests/test_attachment_actions.py" -o "${staging}/tests/test_attachment_actions.py"
 curl -fsSL "${source}/tests/test_calendar_actions.py" -o "${staging}/tests/test_calendar_actions.py"
 curl -fsSL "${source}/tests/test_sent_actions.py" -o "${staging}/tests/test_sent_actions.py"
 "$python" -m pip install "pypdf>=5,<7"
 "$python" -c 'import mcp'
 PYTHONPATH="${staging}/mcp_server" "$python" -m unittest discover -s "${staging}/tests" -q
-"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py" "${staging}/mcp_server/attachment_actions.py"
+"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py" "${staging}/mcp_server/attachment_actions.py" "${staging}/mcp_server/draft_actions.py"
 
 cp -p "${target}/server.py" "${backup}/server.py"
+if [[ -f "${target}/draft_actions.py" ]]; then cp -p "${target}/draft_actions.py" "${backup}/draft_actions.py"; fi
 if [[ -f "${target}/attachment_actions.py" ]]; then cp -p "${target}/attachment_actions.py" "${backup}/attachment_actions.py"; fi
 if [[ -f "${target}/sent_actions.py" ]]; then
   cp -p "${target}/sent_actions.py" "${backup}/sent_actions.py"
@@ -53,6 +56,7 @@ if [[ -f "${target}/calendar_actions.py" ]]; then
   cp -p "${target}/calendar_actions.py" "${backup}/calendar_actions.py"
 fi
 install -m 0644 "${staging}/mcp_server/server.py" "${target}/server.py"
+install -m 0644 "${staging}/mcp_server/draft_actions.py" "${target}/draft_actions.py"
 install -m 0644 "${staging}/mcp_server/attachment_actions.py" "${target}/attachment_actions.py"
 install -m 0644 "${staging}/mcp_server/sent_actions.py" "${target}/sent_actions.py"
 install -m 0644 "${staging}/mcp_server/mail_actions.py" "${target}/mail_actions.py"
@@ -62,6 +66,7 @@ service_user=${service_user:-root}
 install -d -o "$service_user" -m 0700 /var/lib/raschini-mail-mcp
 if ! systemctl restart "$unit" || ! systemctl is-active --quiet "$unit"; then
   cp -p "${backup}/server.py" "${target}/server.py"
+  if [[ -f "${backup}/draft_actions.py" ]]; then cp -p "${backup}/draft_actions.py" "${target}/draft_actions.py"; else rm -f "${target}/draft_actions.py"; fi
   if [[ -f "${backup}/attachment_actions.py" ]]; then cp -p "${backup}/attachment_actions.py" "${target}/attachment_actions.py"; else rm -f "${target}/attachment_actions.py"; fi
   if [[ -f "${backup}/sent_actions.py" ]]; then
     cp -p "${backup}/sent_actions.py" "${target}/sent_actions.py"
