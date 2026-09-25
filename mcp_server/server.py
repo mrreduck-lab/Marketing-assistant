@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from calendar_actions import list_calendars, list_events, preview_calendar_event, create_calendar_event, diagnose_calendar
 from sent_actions import list_folders, list_sent, read_sent, smtp_status
 from attachment_actions import list_attachments, read_attachment
+from draft_actions import list_drafts, read_draft, save_draft, update_draft
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
                           prepare_reply, read_message, read_thread, run_auto_replies,
@@ -187,6 +188,33 @@ def find_mail(query: str, scan_limit: int = 100) -> list[dict[str, str]]:
         raise ValueError("scan_limit must be from 1 to 200")
     # IMAP OR is evaluated by the server. Cap returned headers at 50.
     return _search_headers(["OR", "FROM", needle, "SUBJECT", needle], min(scan_limit, 50))
+
+
+@mcp.tool()
+def list_mail_drafts(project: str = "", query: str = "", limit: int = 30) -> dict:
+    """List LIVE Mail.ru drafts, optionally by partnership project, recipient or subject."""
+    return list_drafts(project, query, limit)
+
+
+@mcp.tool()
+def read_mail_draft(uid: str) -> dict:
+    """Read the latest draft by its Drafts-folder UID, including edits made in Mail.ru."""
+    return read_draft(uid)
+
+
+@mcp.tool()
+def save_mail_draft(to: str, subject: str, body: str, project: str = "") -> dict:
+    """Save an unsent draft in Mail.ru. No SMTP delivery occurs."""
+    return save_draft(to, subject, body, project)
+
+
+@mcp.tool()
+def update_mail_draft(uid: str, to: str, subject: str, body: str, project: str = "") -> dict:
+    """Replace an existing Mail.ru draft; first read it to avoid overwriting edits.
+
+    Editing drafts with attachments is blocked until attachment-preserving edits exist.
+    """
+    return update_draft(uid, to, subject, body, project)
 
 
 @mcp.tool()
