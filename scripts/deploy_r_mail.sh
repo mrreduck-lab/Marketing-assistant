@@ -31,7 +31,7 @@ curl -fsSL "${source}/mcp_server/server.py" -o "${staging}/mcp_server/server.py"
 curl -fsSL "${source}/mcp_server/attachment_actions.py" -o "${staging}/mcp_server/attachment_actions.py"
 curl -fsSL "${source}/mcp_server/mail_actions.py" -o "${staging}/mcp_server/mail_actions.py"
 curl -fsSL "${source}/mcp_server/calendar_actions.py" -o "${staging}/mcp_server/calendar_actions.py"
-curl -fsSL "${source}/mcp_server/sent_actions.py" -o "${staging}/mcp_server/sent_actions.py" "${staging}/mcp_server/attachment_actions.py"
+curl -fsSL "${source}/mcp_server/sent_actions.py" -o "${staging}/mcp_server/sent_actions.py"
 curl -fsSL "${source}/tests/test_mail_actions.py" -o "${staging}/tests/test_mail_actions.py"
 curl -fsSL "${source}/tests/test_attachment_actions.py" -o "${staging}/tests/test_attachment_actions.py"
 curl -fsSL "${source}/tests/test_calendar_actions.py" -o "${staging}/tests/test_calendar_actions.py"
@@ -39,7 +39,7 @@ curl -fsSL "${source}/tests/test_sent_actions.py" -o "${staging}/tests/test_sent
 "$python" -m pip install "pypdf>=5,<7"
 "$python" -c 'import mcp'
 PYTHONPATH="${staging}/mcp_server" "$python" -m unittest discover -s "${staging}/tests" -q
-"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py"
+"$python" -m py_compile "${staging}/mcp_server/server.py" "${staging}/mcp_server/mail_actions.py" "${staging}/mcp_server/calendar_actions.py" "${staging}/mcp_server/sent_actions.py" "${staging}/mcp_server/attachment_actions.py"
 
 cp -p "${target}/server.py" "${backup}/server.py"
 if [[ -f "${target}/attachment_actions.py" ]]; then cp -p "${target}/attachment_actions.py" "${backup}/attachment_actions.py"; fi
