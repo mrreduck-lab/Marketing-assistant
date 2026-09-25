@@ -2,7 +2,7 @@
 # Run on the private mail host as root. No credentials are printed or copied.
 set -Eeuo pipefail
 
-readonly revision='528a35ba5b78aad65c566eaeb945dabd500464c9'
+readonly revision='d7d156942f7003d3ab5699f1fcaf6037e1c780d3'
 readonly base='/opt/raschini-mail-mcp'
 readonly target="${base}/mcp_server"
 readonly python="${base}/.venv-mcp/bin/python3"
