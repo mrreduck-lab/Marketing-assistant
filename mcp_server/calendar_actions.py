@@ -64,8 +64,8 @@ def _request(method, url, body=b"", depth=None, content_type="application/xml; c
                 continue
             if error.code in (401, 403):
                 raise RuntimeError("Calendar credentials or access denied") from None
-            safe_path = urllib.parse.urlsplit(url).path
-            raise RuntimeError(f"CalDAV {method} HTTP {error.code} at {safe_path[:160]}") from None
+            stage = "root" if urllib.parse.urlsplit(url).path in ("", "/") else "calendar endpoint"
+            raise RuntimeError(f"CalDAV {method} HTTP {error.code} at {stage}") from None
     raise RuntimeError("Too many CalDAV redirects")
 
 
