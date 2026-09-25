@@ -9,6 +9,7 @@ from email.utils import parsedate_to_datetime
 from mcp.server.fastmcp import FastMCP
 from calendar_actions import list_calendars, list_events, preview_calendar_event, create_calendar_event, diagnose_calendar
 from sent_actions import list_folders, list_sent, read_sent, smtp_status
+from attachment_actions import list_attachments, read_attachment
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
                           prepare_reply, read_message, read_thread, run_auto_replies,
@@ -160,6 +161,21 @@ def create_mail_calendar_event(title: str, start: str, end: str, approval: str,
 def read_mail(uid: str, max_chars: int = 20000) -> dict:
     """Read one INBOX message body by UID without setting Seen; attachments are listed, not opened."""
     return read_message(uid, max_chars)
+
+
+@mcp.tool()
+def list_mail_attachments(uid: str) -> dict:
+    """List attachments in one INBOX message without marking it read or returning file bytes."""
+    return list_attachments(uid)
+
+
+@mcp.tool()
+def read_mail_attachment(uid: str, index: int) -> dict:
+    """Extract bounded text from PDF, DOCX, XLSX, TXT or CSV in memory.
+
+    Full personal-data filtering is NOT enabled. Images and scanned documents are not read.
+    """
+    return read_attachment(uid, index)
 
 
 @mcp.tool()
