@@ -209,12 +209,12 @@ def save_mail_draft(to: str, subject: str, body: str, project: str = "") -> dict
 
 
 @mcp.tool()
-def update_mail_draft(uid: str, to: str, subject: str, body: str, project: str = "") -> dict:
+def update_mail_draft(uid: str, to: str, subject: str, body: str, expected_message_id: str, project: str = "") -> dict:
     """Replace an existing Mail.ru draft; first read it to avoid overwriting edits.
 
     Editing drafts with attachments is blocked until attachment-preserving edits exist.
     """
-    return update_draft(uid, to, subject, body, project)
+    return update_draft(uid, to, subject, body, project, expected_message_id)
 
 
 @mcp.tool()
