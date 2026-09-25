@@ -41,7 +41,7 @@ def _folders(conn):
         if name.startswith('"') and name.endswith('"'):
             name = name[1:-1]
         if r'\noselect' not in flags:
-            folders.append({"name": name, "sent": r'\sent' in flags})
+            folders.append({"name": name, "sent": r'\sent' in flags, "drafts": r'\drafts' in flags})
     return folders
 
 
