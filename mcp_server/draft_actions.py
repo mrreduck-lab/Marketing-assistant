@@ -29,8 +29,8 @@ def _draft_folder(conn):
         for row in rows or []:
             if not isinstance(row, bytes):
                 continue
-            match = re.match(rb'^\\((.*?)\\)\\s+(?:"[^"]*"|NIL)\\s+(.+)$', row)
-            if match and b"\\\\drafts" in match.group(1).lower().split():
+            match = re.match(rb'^\((.*?)\)\s+(?:"[^"]*"|NIL)\s+(.+)$', row)
+            if match and b"\\drafts" in match.group(1).lower().split():
                 name = match.group(2).decode("ascii", "replace").strip()
                 choices.append(name[1:-1] if name.startswith('"') and name.endswith('"') else name)
     if len(choices) != 1:
@@ -131,7 +131,7 @@ def _message(to, subject, body, project="", reply_id="", references=""):
 
 
 def _append(conn, folder, msg):
-    status, rows = conn.append(folder, r"(\\Draft)", imaplib.Time2Internaldate(
+    status, rows = conn.append(folder, r"(\Draft)", imaplib.Time2Internaldate(
         datetime.now(timezone.utc)), msg.as_bytes(policy=email.policy.SMTP))
     if status != "OK":
         raise RuntimeError("IMAP APPEND not confirmed; check Drafts before retrying")
@@ -154,12 +154,14 @@ def save_draft(to, subject, body, project=""):
         conn.logout()
 
 
-def update_draft(uid, to, subject, body, project=""):
+def update_draft(uid, to, subject, body, project="", expected_message_id=""):
     """Never overwrite a stale draft or destroy attachment-bearing drafts."""
     conn = _connect()
     try:
         folder = _open(conn, readonly=False)
         old = _fetch(conn, uid)
+        if not expected_message_id or str(old.get("Message-ID", "")) != expected_message_id:
+            raise ValueError("Draft version mismatch: read the current draft before editing")
         _, attachments = _body(old)
         if attachments:
             raise ValueError("Draft has attachments; editing is blocked until attachment preservation is implemented")
@@ -167,7 +169,7 @@ def update_draft(uid, to, subject, body, project=""):
                        str(old.get("In-Reply-To", "")), str(old.get("References", "")))
         new_uid = _append(conn, folder, msg)
         # Only remove the old version after the replacement is verified.
-        status, _ = conn.uid("store", _uid(uid), "+FLAGS.SILENT", r"(\\Deleted)")
+        status, _ = conn.uid("store", _uid(uid), "+FLAGS.SILENT", r"(\Deleted)")
         if status != "OK":
             return {"saved": True, "uid": new_uid, "old_uid": _uid(uid),
                     "warning": "Old draft may remain; remove duplicate manually"}
