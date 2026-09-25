@@ -15,7 +15,7 @@ class FakeIMAP:
         self.next_uid = 100
         self.calls = []
     def list(self):
-        return "OK", [b'(\\HasNoChildren \\Drafts) "/" "Drafts"']
+        return "OK", [b'(\HasNoChildren \Drafts) "/" "Drafts"']
     def select(self, name, readonly=True):
         self.calls.append(("select", name, readonly))
         return "OK", [b"1"]
@@ -61,7 +61,7 @@ class DraftTests(unittest.TestCase):
         msgid = drafts.read_draft(uid)["message_id"]
         updated = drafts.update_draft(uid, "partner@example.org", "Forbes Club", "Edited", "Partnerships", msgid)
         self.assertEqual(drafts.read_draft(updated["uid"])["body"].strip(), "Edited")
-        self.assertIn(("store", (uid, "+FLAGS.SILENT", r"(\\Deleted)")), self.conn.calls)
+        self.assertIn(("store", (uid, "+FLAGS.SILENT", r"(\Deleted)")), self.conn.calls)
     def test_rejects_attachment_edit(self):
         msg = drafts._message("a@example.org", "Subject", "Text")
         msg.add_attachment(b"data", maintype="application", subtype="pdf", filename="contract.pdf")
