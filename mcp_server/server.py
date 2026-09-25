@@ -12,6 +12,7 @@ from calendar_actions import list_calendars, list_events, preview_calendar_event
 from sent_actions import list_folders, list_sent, read_sent, smtp_status
 from attachment_actions import list_attachments, read_attachment
 from draft_actions import list_drafts, read_draft, save_draft, update_draft
+from search_actions import search_all_mail
 
 from mail_actions import (create_auto_rule, list_auto_rules, log_work,
                           prepare_reply, read_message, read_thread, run_auto_replies,
@@ -188,6 +189,20 @@ def find_mail(query: str, scan_limit: int = 100) -> list[dict[str, str]]:
         raise ValueError("scan_limit must be from 1 to 200")
     # IMAP OR is evaluated by the server. Cap returned headers at 50.
     return _search_headers(["OR", "FROM", needle, "SUBJECT", needle], min(scan_limit, 50))
+
+
+@mcp.tool()
+def search_all_mail_folders(sender: str = "", recipient: str = "", subject: str = "",
+                            since: str = "", before: str = "", text: str = "",
+                            project: str = "", folders: str = "inbox,sent,drafts",
+                            limit: int = 20) -> dict:
+    """Search Mail.ru INBOX, Sent and Drafts server-side, without downloading the mailbox.
+
+    Dates are YYYY-MM-DD; before is exclusive. Project matches X-RMail-Project
+    (only R Mail tagged drafts); use subject/text for older untagged messages.
+    Returns folder-specific UIDs and matched headers only.
+    """
+    return search_all_mail(sender, recipient, subject, since, before, text, project, folders, limit)
 
 
 @mcp.tool()
