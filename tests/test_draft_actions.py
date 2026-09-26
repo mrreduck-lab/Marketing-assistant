@@ -24,6 +24,8 @@ class FakeIMAP:
         if command == "search":
             if args[0] == "ALL":
                 return "OK", [" ".join(self.messages).encode()]
+            if args[0] is None and args[1] == "ALL":
+                return "OK", [" ".join(self.messages).encode()]
             return "OK", [" ".join(uid for uid, msg in self.messages.items()
                                    if str(msg["Message-ID"]) == args[-1]).encode()]
         if command == "fetch":
