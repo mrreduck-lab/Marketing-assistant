@@ -55,7 +55,7 @@ class DraftTests(unittest.TestCase):
         first = drafts.save_draft("partner@example.org", "Forbes Club", "Original", "Partnerships / Forbes")
         uid = first["uid"]
         self.assertEqual(drafts.read_draft(uid)["body"].strip(), "Original")
-        self.assertEqual(len(drafts.list_drafts(project="Forbes")["drafts"]), 1)
+        self.assertEqual(len(drafts.list_drafts(project="Partnerships")["drafts"]), 1)
         with self.assertRaisesRegex(ValueError, "version mismatch"):
             drafts.update_draft(uid, "partner@example.org", "Forbes Club", "Edited", "Partnerships", "<stale>")
         msgid = drafts.read_draft(uid)["message_id"]
