@@ -15,7 +15,7 @@ class FakeIMAP:
         self.next_uid = 100
         self.calls = []
     def list(self):
-        return "OK", [b'(\HasNoChildren \Drafts) "/" "Drafts"']
+        return "OK", [br'(\\HasNoChildren \\Drafts) "/" "Drafts"']
     def select(self, name, readonly=True):
         self.calls.append(("select", name, readonly))
         return "OK", [b"1"]
