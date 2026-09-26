@@ -27,7 +27,8 @@ class FakeIMAP:
             return "OK", [" ".join(uid for uid, msg in self.messages.items()
                                    if str(msg["Message-ID"]) == args[-1]).encode()]
         if command == "fetch":
-            msg = self.messages.get(str(args[0]))
+            key = args[0].decode("ascii") if isinstance(args[0], bytes) else str(args[0])
+            msg = self.messages.get(key)
             return "OK", [(b"draft", msg.as_bytes())] if msg else []
         if command == "store":
             return "OK", [b"stored"]
@@ -55,7 +56,9 @@ class DraftTests(unittest.TestCase):
         first = drafts.save_draft("partner@example.org", "Forbes Club", "Original", "Partnerships / Forbes")
         uid = first["uid"]
         self.assertEqual(drafts.read_draft(uid)["body"].strip(), "Original")
-        self.assertEqual(len(drafts.list_drafts(project="Partnerships")["drafts"]), 1)
+        listed = drafts.list_drafts(project="Partnerships")["drafts"]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["project"], "Partnerships / Forbes")
         with self.assertRaisesRegex(ValueError, "version mismatch"):
             drafts.update_draft(uid, "partner@example.org", "Forbes Club", "Edited", "Partnerships", "<stale>")
         msgid = drafts.read_draft(uid)["message_id"]
