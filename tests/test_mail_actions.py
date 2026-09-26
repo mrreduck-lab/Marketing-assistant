@@ -97,7 +97,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_exact_approval_and_no_duplicate_send(self):
         draft = mail.prepare_reply("9", "Thank you. I will review this.")
-        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP):
+        with patch.object(mail.smtplib, "SMTP_SSL", FakeSMTP), patch("sent_actions.save_sent_copy", return_value={"method": "imap_append"}):
             with self.assertRaises(ValueError):
                 mail.send_reply(draft["draft_id"], "")
             sent = mail.send_reply(draft["draft_id"], "SEND " + draft["draft_id"])

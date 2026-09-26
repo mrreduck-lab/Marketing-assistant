@@ -31,3 +31,9 @@ The one-command host rollout is `scripts/deploy_r_mail.sh` in this branch. It ch
 For optional automation, invoke `run_auto_replies()` from a scheduled private process using the *same* credential environment and state directory, or call `execute_auto_reply_check` from an approved scheduler. Start with one narrowly scoped reviewed rule. Rule changes and mail actions appear in `get_mail_work_report`. No rule is enabled by deploying this release.
 
 Limitations: INBOX only for reading; attachments are listed but not opened; `read_mail` returns at most 50,000 body characters from a message up to 2 MB; a thread search covers only recent INBOX and not Sent. A failed SMTP call can have an uncertain outcome, and the service refuses to automatically retry it.
+
+## Raschini pilot: Sent and SMTP diagnostics (proposed change)
+
+New tools: `list_mail_folders`, `list_sent_mail(limit,query)`, `read_sent_mail(uid)`, and `check_smtp_configuration`. They read Sent without marking messages as read and return no passwords. `list_sent_mail` scans at most 500 latest Sent headers. If the server does not expose exactly one \\Sent special-use folder, set `MAIL_SENT_FOLDER` to the exact folder name returned by `list_mail_folders`. Sent UIDs cannot be passed to INBOX-only `read_mail` or `draft_mail_reply`.
+
+SMTP diagnostics only verify environment variables. Sending still requires `SMTP_USER` equal to `MAIL_USER`, `SMTP_PASSWORD` (app password), and an approved draft. A configured status does not prove a successful SMTP login or delivery. Do not paste credentials into chat. Deploy only after tests and a private-server configuration check; this branch is not automatically deployed.

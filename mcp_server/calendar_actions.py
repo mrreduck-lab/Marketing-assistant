@@ -1,6 +1,9 @@
-"""Read-only Mail Calendar CalDAV access using the standard library."""
+"""Mail.ru Calendar CalDAV access using the standard library."""
 
 import base64
+import hashlib
+import hmac
+import json
 import os
 import re
 import urllib.error
@@ -19,8 +22,8 @@ MAX_RESPONSE = 2_000_000
 
 
 def _credentials():
-    user = os.environ.get("CALDAV_USER")
-    password = os.environ.get("CALDAV_PASSWORD")
+    user = os.environ.get("CALDAV_USER") or os.environ.get("MAIL_USER")
+    password = os.environ.get("CALDAV_PASSWORD") or os.environ.get("MAIL_PASSWORD")
     if not user or not password:
         raise RuntimeError("Calendar credentials are not configured (CALDAV_USER/CALDAV_PASSWORD)")
     return user, password
@@ -34,20 +37,22 @@ def _url(href, base=None):
     return url
 
 
-def _request(method, url, body=b"", depth=None):
+def _request(method, url, body=b"", depth=None, content_type="application/xml; charset=utf-8", extra_headers=None):
     user, password = _credentials()
     headers = {
         "Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode(),
-        "Content-Type": "application/xml; charset=utf-8",
+        "Content-Type": content_type,
         "Accept": "application/xml",
     }
     if depth is not None:
         headers["Depth"] = str(depth)
+    if extra_headers:
+        headers.update(extra_headers)
     for _ in range(4):
-        req = urllib.request.Request(_url(url), data=body, method=method, headers=headers)
+        req = urllib.request.Request(_url(url), data=body if method in ("PROPFIND", "REPORT", "PUT") else None, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=20) as response:
-                if response.status not in (200, 207):
+                if response.status not in (200, 201, 204, 207):
                     raise RuntimeError(f"CalDAV returned HTTP {response.status}")
                 data = response.read(MAX_RESPONSE + 1)
                 if len(data) > MAX_RESPONSE:
@@ -59,7 +64,8 @@ def _request(method, url, body=b"", depth=None):
                 continue
             if error.code in (401, 403):
                 raise RuntimeError("Calendar credentials or access denied") from None
-            raise RuntimeError(f"CalDAV returned HTTP {error.code}") from None
+            stage = "root" if urllib.parse.urlsplit(url).path in ("", "/") else "calendar endpoint"
+            raise RuntimeError(f"CalDAV {method} HTTP {error.code} at {stage}") from None
     raise RuntimeError("Too many CalDAV redirects")
 
 
@@ -95,11 +101,23 @@ def _nested_href(props, key):
 
 
 def _calendars():
-    origin = _url(os.environ.get("CALDAV_URL", f"https://{HOST}/"))
+    configured = os.environ.get("CALDAV_URL", "").strip()
+    if configured and configured.rstrip("/") != f"https://{HOST}":
+        direct = _url(configured)
+        # Mail.ru publishes the actual per-calendar CalDAV URL in its calendar UI.
+        # A direct collection URL does not require principal/home-set discovery.
+        props = _propfind(direct, ["resourcetype", "displayname"])
+        for href, values in props:
+            kind = values.get(f"{{{DAV}}}resourcetype")
+            if kind is not None and kind.find("c:calendar", NS) is not None:
+                name = values.get(f"{{{DAV}}}displayname")
+                return [{"id": _url(href, direct), "name": (name.text or "").strip() if name is not None else ""}]
+        raise RuntimeError("CALDAV_URL is not a calendar collection; copy the CalDAV link from Mail.ru calendar settings")
+    origin = _url(configured or f"https://{HOST}/")
     try:
         principal = _propfind(origin, ["current-user-principal"])
     except RuntimeError as error:
-        if origin != f"https://{HOST}/" or "HTTP 404" not in str(error):
+        if origin != f"https://{HOST}/" or not any(code in str(error) for code in ("HTTP 404", "HTTP 400")):
             raise
         origin = _url("/.well-known/caldav")
         principal = _propfind(origin, ["current-user-principal"])
@@ -224,3 +242,114 @@ def list_events(start_date, end_date, calendar_id="", limit=100):
     return {"events": events, "range_start": start.isoformat(), "range_end_exclusive": end.isoformat(),
             "range_timezone": str(zone),
             "limit_reached": len(events) >= limit, "recurrences_expanded": False}
+
+
+def _calendar_event_payload(title, start, end, description="", location="", calendar_id=""):
+    """Validate explicit event times; require a calendar selection if more than one exists."""
+    if not title or not title.strip() or len(title) > 200:
+        raise ValueError("Event title must be 1-200 characters")
+    if len(description) > 4000 or len(location) > 300:
+        raise ValueError("Event description or location too long")
+    try:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+    except (ValueError, TypeError):
+        raise ValueError("Use ISO datetime: 2026-09-25T10:00:00+03:00") from None
+    if start_dt.tzinfo is None or end_dt.tzinfo is None:
+        raise ValueError("Start and end must include a timezone offset, e.g. +03:00")
+    if not start_dt < end_dt or end_dt - start_dt > timedelta(days=7):
+        raise ValueError("End must follow start, duration at most 7 days")
+    calendars = _calendars()
+    selected = [cal for cal in calendars if cal["id"] == calendar_id] if calendar_id else calendars
+    if len(selected) != 1:
+        raise ValueError("Select exactly one calendar_id from list_mail_calendars")
+    return {"title": title.strip(), "start": start_dt.astimezone(timezone.utc).isoformat(),
+            "end": end_dt.astimezone(timezone.utc).isoformat(), "description": description,
+            "location": location, "calendar_id": selected[0]["id"],
+            "calendar_name": selected[0]["name"]}
+
+
+def _approval_code(payload):
+    _, password = _credentials()
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hmac.new(password.encode(), raw, hashlib.sha256).hexdigest()[:24]
+
+
+def preview_calendar_event(title, start, end, description="", location="", calendar_id=""):
+    """Preview only. The user must explicitly approve the exact preview before creation."""
+    payload = _calendar_event_payload(title, start, end, description, location, calendar_id)
+    return {"status": "preview_only", "event": payload,
+            "approval": "CREATE " + _approval_code(payload),
+            "note": "No calendar event has been created. Ask the user to approve this exact event."}
+
+
+def _ical_escape(value):
+    return (value.replace("\\", "\\\\").replace("\r\n", "\n")
+            .replace("\r", "\n").replace("\n", "\\n")
+            .replace(",", "\\,").replace(";", "\\;"))
+
+
+def create_calendar_event(title, start, end, approval, description="", location="", calendar_id=""):
+    """Create a single idempotent CalDAV event after explicit preview approval."""
+    payload = _calendar_event_payload(title, start, end, description, location, calendar_id)
+    expected = "CREATE " + _approval_code(payload)
+    if not hmac.compare_digest(approval, expected):
+        raise ValueError("Approval does not match event preview; preview again and obtain user approval")
+    event_uid = "rmail-" + _approval_code(payload) + "@raschini-mail-mcp"
+    resource = _url(urllib.parse.quote(event_uid, safe="") + ".ics", payload["calendar_id"].rstrip("/") + "/")
+    utc_start = datetime.fromisoformat(payload["start"]).strftime("%Y%m%dT%H%M%SZ")
+    utc_end = datetime.fromisoformat(payload["end"]).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//R Mail//CalDAV//EN",
+             "BEGIN:VEVENT", "UID:" + event_uid, "DTSTAMP:" + stamp,
+             "DTSTART:" + utc_start, "DTEND:" + utc_end,
+             "SUMMARY:" + _ical_escape(payload["title"]),
+             "DESCRIPTION:" + _ical_escape(description),
+             "LOCATION:" + _ical_escape(location), "END:VEVENT", "END:VCALENDAR", ""]
+    ical = "\r\n".join(lines).encode("utf-8")
+    try:
+        _request("GET", resource)
+        return {"status": "already_exists", "uid": event_uid, "calendar": payload["calendar_name"],
+                "note": "Existing event found; no duplicate created."}
+    except RuntimeError as error:
+        if "HTTP 404" not in str(error):
+            raise
+    # If a PUT times out, retry with the same event UID rather than creating a second event.
+    _request("PUT", resource, ical, content_type="text/calendar; charset=utf-8",
+             extra_headers={"If-None-Match": "*"})
+    saved = _request("GET", resource)
+    if event_uid.encode() not in saved:
+        raise RuntimeError("Calendar server accepted PUT but event verification failed; do not create again blindly")
+    return {"status": "created", "uid": event_uid, "calendar": payload["calendar_name"],
+            "start": start, "end": end, "title": title}
+
+
+
+def diagnose_calendar():
+    """Read-only stage-by-stage CalDAV check, without disclosing credentials or events."""
+    result = {"status": "checking", "host": HOST, "checks": []}
+    origin = _url(os.environ.get("CALDAV_URL", f"https://{HOST}/"))
+    steps = [("calendar_discovery", _calendars)] if os.environ.get("CALDAV_URL", "").strip().rstrip("/") != f"https://{HOST}" and os.environ.get("CALDAV_URL", "").strip() else [
+        ("principal", lambda: _propfind(origin, ["current-user-principal"])),
+        ("calendar_discovery", _calendars),
+    ]
+    for name, action in steps:
+        try:
+            value = action()
+            result["checks"].append({"stage": name, "status": "ok",
+                                     "calendar_count": len(value) if name == "calendar_discovery" else None})
+        except Exception as error:
+            result["checks"].append({"stage": name, "status": "failed",
+                                     "error": str(error)[:220]})
+            result["status"] = "failed"
+            return result
+    try:
+        today = datetime.now(ZoneInfo(os.environ.get("CALDAV_TIMEZONE", "Europe/Moscow"))).date()
+        data = list_events(today.isoformat(), (today + timedelta(days=1)).isoformat(), limit=1)
+        result["checks"].append({"stage": "event_read", "status": "ok",
+                                 "event_count_at_least": len(data["events"])})
+        result["status"] = "ok"
+    except Exception as error:
+        result["checks"].append({"stage": "event_read", "status": "failed", "error": str(error)[:220]})
+        result["status"] = "failed"
+    return result
