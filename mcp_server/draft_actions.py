@@ -22,17 +22,8 @@ def _draft_folder(conn):
     if explicit:
         choices = [f["name"] for f in _folders(conn) if f["name"] == explicit]
     else:
-        status, rows = conn.list()
-        if status != "OK":
-            raise RuntimeError("Cannot list folders")
-        choices = []
-        for row in rows or []:
-            if not isinstance(row, bytes):
-                continue
-            match = re.match(rb'^\((.*?)\)\s+(?:"[^"]*"|NIL)\s+(.+)$', row)
-            if match and b"\\drafts" in match.group(1).lower().split():
-                name = match.group(2).decode("ascii", "replace").strip()
-                choices.append(name[1:-1] if name.startswith('"') and name.endswith('"') else name)
+        # Reuse the shared RFC 6154 LIST parser used by Sent/search.
+        choices = [f["name"] for f in _folders(conn) if f.get("drafts")]
     if len(choices) != 1:
         raise RuntimeError("Drafts folder not uniquely identified; set MAIL_DRAFTS_FOLDER")
     return choices[0]
